@@ -5,7 +5,7 @@ import requests
 import urllib.parse
 import gc
 from groq import Groq
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 # Mengunci direktori kerja agar file tidak "nyasar"
 BASE_DIR = os.path.abspath(os.getcwd())
@@ -77,40 +77,22 @@ def generate_image_content():
             
     return {"ref": ref, "ayat": ayat, "renungan": renungan, "cta": cta, "prompt_gambar": prompt_gambar}
 
-# --- 2. PENGUNDUH FONT (DENGAN SISTEM SELF-HEALING ANTI KORUP) ---
-def download_aesthetic_fonts():
-    print("📥 Memeriksa dan mengunduh koleksi Font Estetik...")
-    # Menggunakan path 'static' yang 100% valid di repository Google Fonts
+# --- 2. PEMUAT FONT LOKAL (SUPER CEPAT & BEBAS ERROR) ---
+def load_aesthetic_fonts():
+    print("📥 Memuat koleksi Font Estetik lokal dari repository...")
+    
+    # Mencocokkan dengan nama file persis seperti yang Anda upload
     fonts = {
-        "cinzel": "https://raw.githubusercontent.com/google/fonts/main/ofl/cinzel/static/Cinzel-Bold.ttf",
-        "playfair_italic": "https://raw.githubusercontent.com/google/fonts/main/ofl/playfairdisplay/static/PlayfairDisplay-Italic.ttf",
-        "playfair_regular": "https://raw.githubusercontent.com/google/fonts/main/ofl/playfairdisplay/static/PlayfairDisplay-Regular.ttf"
+        "cinzel": os.path.join(BASE_DIR, "CinzelDecorative-Bold.ttf"),
+        "playfair_italic": os.path.join(BASE_DIR, "PlayfairDisplay-Italic-VariableFont_wght.ttf"),
+        "playfair_regular": os.path.join(BASE_DIR, "PlayfairDisplay-VariableFont_wght.ttf")
     }
     
-    font_paths = {}
-    for name, url in fonts.items():
-        path = os.path.join(BASE_DIR, f"{name}.ttf")
-        
-        # PENGECEKAN KORUPSI: Jika file ada, tes apakah itu benar-benar Font (bukan HTML)
-        if os.path.exists(path):
-            try:
-                ImageFont.truetype(path, 10)
-            except Exception:
-                print(f"⚠️ File {name}.ttf korup terdeteksi! Menghapus dan memperbaiki otomatis...")
-                os.remove(path)
-                
-        # Jika file belum ada (atau baru saja dihapus karena korup), unduh yang baru
+    for name, path in fonts.items():
         if not os.path.exists(path):
-            r = requests.get(url, allow_redirects=True)
-            if r.status_code == 200:
-                with open(path, 'wb') as f:
-                    f.write(r.content)
-                print(f"   -> Font {name} berhasil diunduh!")
-            else:
-                raise Exception(f"Gagal mengunduh font {name}. HTTP Status: {r.status_code}")
-                
-        font_paths[name] = path
-    return font_paths
+            raise Exception(f"❌ File font '{os.path.basename(path)}' tidak ditemukan! Pastikan nama file sama persis dengan yang di-upload.")
+            
+    return fonts
 
 # --- 3. GENERATOR GAMBAR POLLINATIONS ---
 def generate_background_image(prompt, output_filename):
@@ -131,7 +113,6 @@ def generate_background_image(prompt, output_filename):
 # --- 4. ENGINE TATA LETAK TEKS ARTISTIK & SOFT SHADOW ---
 def draw_text_with_soft_shadow(draw, position, text, font, text_color, shadow_color="black"):
     x, y = position
-    # Soft shadow (offset sedikit ke kanan bawah)
     draw.text((x + 3, y + 4), text, font=font, fill=shadow_color)
     draw.text((x, y), text, font=font, fill=text_color)
 
@@ -140,7 +121,7 @@ def create_aesthetic_bible_post(item, output_path, img_size=(1080, 1350)):
     bg_path = os.path.join(BASE_DIR, "temp_bg.jpg")
     generate_background_image(item['prompt_gambar'], bg_path)
     
-    # Kunci ukuran gambar secara mutlak agar tidak error mismatch
+    # Kunci ukuran gambar secara mutlak
     img = Image.open(bg_path).convert("RGBA")
     img = ImageOps.fit(img, img_size, Image.Resampling.LANCZOS)
     
@@ -155,7 +136,8 @@ def create_aesthetic_bible_post(item, output_path, img_size=(1080, 1350)):
     img = Image.alpha_composite(img, vignette)
     draw = ImageDraw.Draw(img)
     
-    fonts = download_aesthetic_fonts()
+    # MEMUAT FONT LOKAL
+    fonts = load_aesthetic_fonts()
     font_ref = ImageFont.truetype(fonts['cinzel'], 48)
     font_ayat = ImageFont.truetype(fonts['playfair_italic'], 52)
     font_renungan = ImageFont.truetype(fonts['playfair_regular'], 34)
