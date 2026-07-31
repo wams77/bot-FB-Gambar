@@ -5,7 +5,8 @@ import requests
 import urllib.parse
 import gc
 from groq import Groq
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+# Tambahan modul ImageOps untuk mengunci dan memangkas ukuran gambar secara otomatis
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps 
 
 # Mengunci direktori kerja agar file tidak "nyasar"
 BASE_DIR = os.path.abspath(os.getcwd())
@@ -96,13 +97,13 @@ def download_aesthetic_fonts():
         font_paths[name] = path
     return font_paths
 
-# --- 3. GENERATOR GAMBAR POLLINATIONS (RASIO 4:5 ESTETIK) ---
+# --- 3. GENERATOR GAMBAR POLLINATIONS ---
 def generate_background_image(prompt, output_filename):
     print(f"🎨 Melukis mahakarya visual: '{prompt[:50]}...'")
     full_prompt = f"{prompt}, portrait aspect ratio, breathtaking, divine aesthetic, clean composition, masterpiece"
     encoded_prompt = urllib.parse.quote(full_prompt)
     seed = random.randint(1, 999999)
-    # Ukuran estetik Instagram/Facebook Portrait (1080x1350)
+    # Meminta ukuran estetik Instagram/Facebook Portrait (1080x1350)
     url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1080&height=1350&nologo=true&seed={seed}"
     
     response = requests.get(url, timeout=30)
@@ -124,8 +125,13 @@ def create_aesthetic_bible_post(item, output_path, img_size=(1080, 1350)):
     bg_path = os.path.join(BASE_DIR, "temp_bg.jpg")
     generate_background_image(item['prompt_gambar'], bg_path)
     
-    # Buka gambar dan buat efek Vignette (Sisi luar gelap, tengah terang)
+    # -------------------------------------------------------------
+    # SOLUSI ERROR: Memaksa pemangkasan gambar (Smart Crop)
+    # Memastikan ukuran gambar 100% presisi menjadi 1080x1350 
+    # meskipun AI memberikan gambar dengan dimensi yang salah
+    # -------------------------------------------------------------
     img = Image.open(bg_path).convert("RGBA")
+    img = ImageOps.fit(img, img_size, Image.Resampling.LANCZOS)
     
     # Membuat gradient vignette untuk keterbacaan teks
     vignette = Image.new('RGBA', img_size, (0, 0, 0, 0))
@@ -199,8 +205,10 @@ def upload_photo_to_facebook(image_path, caption):
     with open(image_path, 'rb') as f:
         response = requests.post(url, files={'source': f}, data={'caption': caption, 'access_token': access_token}).json()
         
-    if "id" in response: print("🎉 BERHASIL MENGUNGGAH KE FACEBOOK!\n")
-    else: raise Exception(f"Gagal upload: {response}")
+    if "id" in response: 
+        print("🎉 BERHASIL MENGUNGGAH KE FACEBOOK!\n")
+    else: 
+        raise Exception(f"Gagal upload: {response}")
 
 # --- MAIN LOOP ---
 if __name__ == "__main__":
