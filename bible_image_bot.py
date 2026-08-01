@@ -97,17 +97,18 @@ def generate_batch_image_content(num_posts=5):
     print(f"✅ Berhasil meracik {len(batch)} naskah unik!")
     return batch
 
-# --- 2. PEMUAT FONT LOKAL ---
+# --- 2. PEMUAT FONT LOKAL (MENGGUNAKAN MONTGOMERY/MONTSERRAT BLACK) ---
 def load_aesthetic_fonts():
     fonts = {
         "cinzel": os.path.join(BASE_DIR, "CinzelDecorative-Bold.ttf"),
         "playfair_italic": os.path.join(BASE_DIR, "PlayfairDisplay-Italic-VariableFont_wght.ttf"),
-        "playfair_regular": os.path.join(BASE_DIR, "PlayfairDisplay-VariableFont_wght.ttf")
+        # Menggunakan file Montserrat Black yang sudah Anda unggah
+        "montserrat_black": os.path.join(BASE_DIR, "Montserrat-Black.ttf")
     }
     
     for name, path in fonts.items():
         if not os.path.exists(path):
-            raise Exception(f"❌ File font '{os.path.basename(path)}' tidak ditemukan di repository!")
+            raise Exception(f"❌ File font '{os.path.basename(path)}' tidak ditemukan di repository! Pastikan Anda sudah mengunggahnya.")
             
     return fonts
 
@@ -154,8 +155,9 @@ def create_aesthetic_bible_post(item, output_path, img_size=(1080, 1350)):
     fonts = load_aesthetic_fonts()
     font_ref = ImageFont.truetype(fonts['cinzel'], 48)
     font_ayat = ImageFont.truetype(fonts['playfair_italic'], 52)
-    font_renungan = ImageFont.truetype(fonts['playfair_regular'], 34)
-    font_cta = ImageFont.truetype(fonts['playfair_regular'], 30)
+    # Menggunakan Montserrat Black untuk renungan & CTA agar tebal dan tegas
+    font_renungan = ImageFont.truetype(fonts['montserrat_black'], 32)
+    font_cta = ImageFont.truetype(fonts['montserrat_black'], 28)
     
     def get_text_width(text, font):
         try: return draw.textlength(text, font=font)
@@ -183,14 +185,14 @@ def create_aesthetic_bible_post(item, output_path, img_size=(1080, 1350)):
         draw_text_with_soft_shadow(draw, ((img_size[0]-w_ayat)//2, y_ayat), line, font_ayat, "#FFFFFF")
         y_ayat += 75
 
-    # RENDER 4: RENUNGAN
+    # RENDER 4: RENUNGAN (Menggunakan Montserrat Black)
     y_renungan = 950
     for line in lines_renungan:
         w_ren = get_text_width(line, font_renungan)
         draw_text_with_soft_shadow(draw, ((img_size[0]-w_ren)//2, y_renungan), line, font_renungan, "#E0E0E0")
-        y_renungan += 50
+        y_renungan += 48
         
-    # RENDER 5: CTA
+    # RENDER 5: CTA (Menggunakan Montserrat Black)
     cta_text = item['cta']
     w_cta = get_text_width(cta_text, font_cta)
     draw_text_with_soft_shadow(draw, ((img_size[0]-w_cta)//2, 1200), cta_text, font_cta, "#B3D4FF")
@@ -237,13 +239,11 @@ if __name__ == "__main__":
                 
             mark_verse_as_used(item['ref'])
             
-            # Hapus file lokal setelah di-upload agar bersih
             if os.path.exists(image_file):
                 os.remove(image_file)
                 
             gc.collect()
             
-            # Jeda waktu aman 45 detik antar post untuk menghindari pembatasan spam Meta
             if i < len(batch_items):
                 print("⏳ Jeda 45 detik untuk keamanan anti-spam Meta Graph API...\n")
                 time.sleep(45)
