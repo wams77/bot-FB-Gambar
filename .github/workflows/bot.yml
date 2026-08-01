@@ -2,8 +2,8 @@ name: Auto Aesthetic Bible Image Bot
 
 on:
   schedule:
-    # Berjalan otomatis setiap hari pukul 07:00 WITA (23:00 UTC) dan 19:00 WITA (11:00 UTC)
-    - cron: '0 23,11 * * *' 
+    # Berjalan otomatis setiap hari pukul 05:00 WITA (21:00 UTC) dan 17:00 WITA (09:00 UTC)
+    - cron: '0 21,9 * * *' 
   workflow_dispatch:
 
 permissions:
@@ -24,7 +24,7 @@ jobs:
       - name: Install Python Packages
         run: |
           python -m pip install --upgrade pip
-          pip install requests pillow groq
+          pip install requests pillow groq beautifulsoup4
 
       - name: Jalankan Bot Seni Alkitab
         env:
