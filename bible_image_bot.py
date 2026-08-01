@@ -27,26 +27,27 @@ def mark_verse_as_used(verse_ref):
     with open(HISTORY_FILE, 'a', encoding='utf-8') as f:
         f.write(f"{verse_ref}\n")
 
-# --- 1. GROQ AI: GENERATOR BATCH 5 KONTEN ESTETIK (TANPA CTA) ---
+# --- 1. GROQ AI: GENERATOR BATCH 5 KONTEN (RENUNGAN SINGKAT & KESEHARIAN) ---
 def generate_batch_image_content(num_posts=5):
-    print(f"🕊️ Meminta Groq meracik {num_posts} naskah galeri rohani...")
+    print(f"🕊️ Meminta Groq meracik {num_posts} naskah momen keseharian & simbol kekristenan...")
     
     used_verses = get_used_verses()
     history_context = "\n".join(used_verses[-30:]) if used_verses else "(Belum ada riwayat, buat topik bebas)"
     
     prompt = f"""
-    Bertindaklah sebagai kurator galeri seni rohani Kristen. Buatlah {num_posts} naskah kutipan ayat Alkitab dan renungan puitis yang mendalam.
+    Bertindaklah sebagai fotografer profesional yang menangkap momen-momen keseharian yang memiliki simbol-simbol kekristenan yang hangat dan penuh makna.
+    Buatlah {num_posts} naskah kutipan ayat Alkitab dan renungan singkat.
     
-    ATURAN ANTI-DUPLIKASI: 
-    Dilarang keras membuat naskah dengan referensi ayat atau tema yang mirip dengan daftar ayat ini:
-    {history_context}
+    ATURAN MUTLAK: 
+    1. Kalimat renungan (deskripsi) HARUS SANGAT SINGKAT, padat, puitis, maksimal 1 kalimat pendek (bukan paragraf panjang) agar tidak menutupi atau terpotong di bagian bawah gambar.
+    2. Dilarang keras membuat naskah dengan referensi ayat yang mirip dengan daftar ini: {history_context}
     
     Gunakan pemisah '---' di antara setiap naskah. Format wajib persis seperti ini untuk setiap naskah:
     
     REF: [Referensi Kitab, cth: Mazmur 23:1]
     AYAT: [Isi ayat Alkitab yang menyentuh hati]
-    RENUNGAN: [2-3 kalimat renungan puitis yang mendalam dan menyejukkan jiwa]
-    PROMPT_GAMBAR: [Deskripsi bahasa Inggris yang SANGAT ARTISTIK untuk galeri pameran foto. Gunakan kata kunci seperti: ethereal, divine holy light, renaissance oil painting style, majestic, highly aesthetic, masterpiece, 8k resolution. Jangan ada teks dalam gambar]
+    RENUNGAN: [1 kalimat pendek dan bermakna tentang keseharian]
+    PROMPT_GAMBAR: [Deskripsi bahasa Inggris untuk foto galeri pameran bernuansa keseharian dengan simbol kekristenan. Contoh: "Warm daily life photography, a hot cup of coffee next to an open Bible on a wooden table, soft morning sunlight, cinematic, aesthetic, masterpiece, 8k"]
     """
     
     raw_text = ""
@@ -72,10 +73,10 @@ def generate_batch_image_content(num_posts=5):
         lines = [line.strip() for line in chunk.strip().split("\n") if line.strip()]
         if not lines: continue
         
-        ref = f"Mazmur 2{i}:1"
-        ayat = "Tuhan adalah gembalaku, takkan kekurangan aku."
-        renungan = "Ia membaringkan aku di padang rumput yang hijau dan membimbing aku ke air yang tenang."
-        prompt_gambar = "ethereal divine light rays breaking through clouds, renaissance masterpiece, 8k"
+        ref = f"Keluaran 3{i}:1"
+        ayat = "Tuhan adalah kekuatan dan perisaiku."
+        renungan = "Ketenangan sejati ditemukan saat kita bersandar pada kasih karunia-Nya."
+        prompt_gambar = "Warm daily life photography, open Bible on wooden table, soft morning sunlight, cinematic, 8k"
         
         for line in lines:
             if line.startswith("REF:"): ref = line.replace("REF:", "").strip()
@@ -109,8 +110,8 @@ def load_aesthetic_fonts():
 
 # --- 3. GENERATOR GAMBAR POLLINATIONS ---
 def generate_background_image(prompt, output_filename):
-    print(f"🎨 Memotret galeri visual: '{prompt[:40]}...'")
-    full_prompt = f"{prompt}, portrait aspect ratio, breathtaking, divine aesthetic, clean composition, masterpiece"
+    print(f"🎨 Memotret momen keseharian galeri: '{prompt[:40]}...'")
+    full_prompt = f"{prompt}, portrait aspect ratio, professional photography, breathtaking lighting, clean composition, masterpiece"
     encoded_prompt = urllib.parse.quote(full_prompt)
     seed = random.randint(1, 999999)
     url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1080&height=1350&nologo=true&seed={seed}"
@@ -122,7 +123,7 @@ def generate_background_image(prompt, output_filename):
         return output_filename
     raise Exception("Gagal menghasilkan latar galeri dari AI.")
 
-# --- 4. ENGINE TATA LETAK TEKS ARTISTIK (BERSIH TANPA CTA) ---
+# --- 4. ENGINE TATA LETAK TEKS ARTISTIK (LAPANG & AMAN) ---
 def draw_text_with_soft_shadow(draw, position, text, font, text_color, shadow_color="black"):
     x, y = position
     draw.text((x + 3, y + 4), text, font=font, fill=shadow_color)
@@ -136,7 +137,7 @@ def create_aesthetic_bible_post(item, output_path, img_size=(1080, 1350)):
     img = Image.open(bg_path).convert("RGBA")
     img = ImageOps.fit(img, img_size, Image.Resampling.LANCZOS)
     
-    # Membuat gradient vignette galeri
+    # Membuat gradient vignette galeri yang lembut agar teks sangat kontras
     vignette = Image.new('RGBA', img_size, (0, 0, 0, 0))
     v_draw = ImageDraw.Draw(vignette)
     for y in range(img_size[1]):
@@ -148,9 +149,9 @@ def create_aesthetic_bible_post(item, output_path, img_size=(1080, 1350)):
     draw = ImageDraw.Draw(img)
     
     fonts = load_aesthetic_fonts()
-    font_ref = ImageFont.truetype(fonts['cinzel'], 50)
-    font_ayat = ImageFont.truetype(fonts['playfair_italic'], 52)
-    font_renungan = ImageFont.truetype(fonts['montserrat_black'], 34)
+    font_ref = ImageFont.truetype(fonts['cinzel'], 48)
+    font_ayat = ImageFont.truetype(fonts['playfair_italic'], 50)
+    font_renungan = ImageFont.truetype(fonts['montserrat_black'], 32)
     
     def get_text_width(text, font):
         try: return draw.textlength(text, font=font)
@@ -166,24 +167,24 @@ def create_aesthetic_bible_post(item, output_path, img_size=(1080, 1350)):
     # RENDER 1: REFERENSI AYAT
     ref_text = item['ref'].upper()
     w_ref = get_text_width(ref_text, font_ref)
-    draw_text_with_soft_shadow(draw, ((img_size[0]-w_ref)//2, 280), ref_text, font_ref, "#FFDF73")
+    draw_text_with_soft_shadow(draw, ((img_size[0]-w_ref)//2, 220), ref_text, font_ref, "#FFDF73")
     
     # RENDER 2: GARIS PEMISAH ESTETIK
-    draw.line([(img_size[0]//2 - 120, 380), (img_size[0]//2 + 120, 380)], fill="#FFDF73", width=2)
+    draw.line([(img_size[0]//2 - 120, 310), (img_size[0]//2 + 120, 310)], fill="#FFDF73", width=2)
     
     # RENDER 3: AYAT ALKITAB
-    y_ayat = 480
+    y_ayat = 400
     for line in lines_ayat:
         w_ayat = get_text_width(line, font_ayat)
         draw_text_with_soft_shadow(draw, ((img_size[0]-w_ayat)//2, y_ayat), line, font_ayat, "#FFFFFF")
-        y_ayat += 78
+        y_ayat += 70
 
-    # RENDER 4: RENUNGAN (Menggunakan Montserrat Black, diposisikan lega tanpa terhalang CTA)
-    y_renungan = 980
+    # RENDER 4: RENUNGAN (Pendek & Aman dari batas bawah gambar)
+    y_renungan = 900
     for line in lines_renungan:
         w_ren = get_text_width(line, font_renungan)
         draw_text_with_soft_shadow(draw, ((img_size[0]-w_ren)//2, y_renungan), line, font_renungan, "#E0E0E0")
-        y_renungan += 52
+        y_renungan += 48
 
     final_img = img.convert("RGB")
     final_img.save(output_path, quality=100)
@@ -209,7 +210,7 @@ def upload_photo_to_facebook(image_path, caption):
 
 # --- MAIN LOOP (BATCH 5 POST) ---
 if __name__ == "__main__":
-    print("⚡ MEMULAI PAMERAN GALERI FOTO ROHANI (BATCH 5 KARYA) ⚡\n")
+    print("⚡ PAMERAN FOTO KESEHARIAN & SIMBOL KEKRISTENAN (BATCH 5 KARYA) ⚡\n")
     try:
         batch_items = generate_batch_image_content(num_posts=5)
         
