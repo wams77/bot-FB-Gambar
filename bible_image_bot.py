@@ -33,7 +33,7 @@ def mark_verse_as_used(verse_ref):
 def fetch_sabda_bible_verse(reference_query):
     """
     Mengambil isi ayat Alkitab secara akurat langsung dari situs alkitab.sabda.org
-    Contoh input: "Yesaya 41:10" atau "Yohanes 3:16"
+    dengan sistem retry jika server sedang lambat.
     """
     print(f"📖 Mengambil teks resmi Alkitab SABDA untuk: {reference_query}...")
     encoded_ref = urllib.parse.quote(reference_query)
@@ -43,23 +43,28 @@ def fetch_sabda_bible_verse(reference_query):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
     
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            passage_box = soup.find('td', {'class': 'text'}) or soup.find('div', {'id': 'text'})
+    # Coba hingga 3 kali jika server SABDA sedang lambat
+    for attempt in range(3):
+        try:
+            # Tingkatkan timeout dari 10 menjadi 30 detik
+            response = requests.get(url, headers=headers, timeout=30)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
+                passage_box = soup.find('td', {'class': 'text'}) or soup.find('div', {'id': 'text'})
+                
+                if passage_box:
+                    text = passage_box.get_text(separator=" ", strip=True)
+                    clean_text = ' '.join(text.split())
+                    if len(clean_text) > 10:
+                        print(f"✅ Berhasil mengambil dari SABDA: {clean_text[:60]}...")
+                        return clean_text
+        except requests.exceptions.RequestException as e:
+            print(f"⚠️ SABDA timeout/error (Percobaan {attempt+1}/3)... mencoba lagi.")
+            time.sleep(5)
             
-            if passage_box:
-                text = passage_box.get_text(separator=" ", strip=True)
-                clean_text = ' '.join(text.split())
-                if len(clean_text) > 10:
-                    print(f"✅ Berhasil mengambil dari SABDA: {clean_text[:60]}...")
-                    return clean_text
-    except Exception as e:
-        print(f"⚠️ Gagal mengambil dari SABDA Web: {e}")
-        
+    print("❌ Gagal mengambil dari SABDA Web setelah 3 percobaan.")
     return None
-
+    
 # --- 1. GROQ AI: GENERATOR BATCH 3 KONTEN (REFERENSI & RENUNGAN) ---
 def generate_batch_image_content(num_posts=3):
     print(f"🕊️ Meminta Groq Llama-3 (8B Instant) meracik {num_posts} naskah momen keseharian & simbol kekristenan...")
@@ -150,10 +155,10 @@ def generate_background_image(prompt, output_filename):
     
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        raise Exception("GEMINI_API_KEY belum diatur di environment variable! Pastikan sudah ditambahkan di GitHub Secrets.")
+        raise Exception("GEMINI_API_KEY belum diatur di environment variable!")
         
-    # Endpoint resmi Google AI Studio untuk model Imagen 3 (versi beta)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key={api_key}"
+    # UPDATE: Mengganti model menjadi imagen-3.0-generate-002 yang aktif
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key={api_key}"
     
     # Mempertajam prompt untuk hasil fotografi yang estetik
     full_prompt = f"{prompt}, professional photography, soft lighting, aesthetic, 8k resolution, masterpiece"
@@ -164,7 +169,7 @@ def generate_background_image(prompt, output_filename):
         ],
         "parameters": {
             "sampleCount": 1,
-            "aspectRatio": "3:4" # Rasio portrait, sangat cocok untuk galeri FB/IG
+            "aspectRatio": "3:4" 
         }
     }
     
@@ -172,12 +177,10 @@ def generate_background_image(prompt, output_filename):
     
     for attempt in range(3):
         try:
-            # Batas waktu tunggu 60 detik (proses AI biasanya memakan 10-15 detik)
             response = requests.post(url, headers=headers, json=payload, timeout=60)
             
             if response.status_code == 200:
                 data = response.json()
-                # Google mengembalikan gambar dalam format teks Base64, kita ubah kembali jadi file gambar
                 img_b64 = data["predictions"][0]["bytesBase64"]
                 
                 with open(output_filename, "wb") as f:
@@ -190,7 +193,7 @@ def generate_background_image(prompt, output_filename):
         except requests.exceptions.RequestException as e:
             print(f"⚠️ Request error (Percobaan {attempt+1}/3): {e}")
             
-        time.sleep(10) # Jeda sebelum mencoba lagi
+        time.sleep(10)
 
     raise Exception("Gagal menghasilkan latar galeri dari Google AI Studio setelah 3 percobaan.")
 
