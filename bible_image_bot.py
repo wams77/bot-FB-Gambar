@@ -26,26 +26,67 @@ def mark_verse_as_used(verse_ref):
     with open(HISTORY_FILE, 'a', encoding='utf-8') as f:
         f.write(f"{verse_ref}\n")
 
-# --- 1. GROQ AI: GENERATOR BATCH KONTEN (VALIDASI KETAT TANPA AYAT PENGGANTI) ---
+# --- FUNGSI AMBIL AYAT RESMI DARI API ALKITAB ONLINE ---
+def fetch_online_bible_verse(reference_query):
+    """
+    Mengambil isi ayat Alkitab resmi dari API Alkitab Indonesia (Format JSON).
+    Contoh input: "Filipi 4:6" atau "Yohanes 3:16"
+    """
+    print(f"📖 Mengambil teks resmi Alkitab Online untuk: {reference_query}...")
+    
+    # Format pembersihan string referensi untuk API (misal: "Filipi 4:6" -> kitab=Filipi, pasal=4, ayat=6)
+    try:
+        parts = reference_query.split()
+        if len(parts) < 2:
+            return None
+        book = parts[0]
+        chapter_verse = parts[1].split(':')
+        chapter = chapter_verse[0]
+        verse = chapter_verse[1] if len(chapter_verse) > 1 else "1"
+        
+        # Endpoint API Alkitab Online (Terjemahan Baru / TB)
+        api_url = f"https://api-alkitab.herokuapp.com/v2/passage/{book}/{chapter}/{verse}?ver=tb"
+        
+        for attempt in range(3):
+            try:
+                response = requests.get(api_url, timeout=15)
+                if response.status_code == 200:
+                    data = response.json()
+                    # Menelusuri isi teks dari respons JSON API
+                    if "verses" in data and len(data["verses"]) > 0:
+                        content = data["verses"][0].get("content", "").strip()
+                        if content:
+                            print(f"✅ Berhasil mengambil dari API Alkitab: {content[:60]}...")
+                            return content
+                time.sleep(3)
+            except Exception as e:
+                print(f"⚠️ Gagal koneksi ke API Alkitab (Percobaan {attempt+1}/3): {e}")
+                time.sleep(5)
+                
+    except Exception as parse_err:
+        print(f"⚠️ Gagal parsing referensi ayat '{reference_query}': {parse_err}")
+        
+    return None
+
+# --- 1. GROQ AI: HANYA MENCARI REFERENSI & RENUNGAN (ISI AYAT DIAMBIL DARI API RESMI) ---
 def generate_batch_image_content(num_posts=3):
-    print(f"🕊️ Meminta Groq Llama-3 meracik {num_posts} naskah ayat Alkitab & renungan yang akurat...")
+    print(f"🕊️ Meminta Groq Llama-3 meracik {num_posts} referensi ayat & renungan rohani...")
     
     used_verses = get_used_verses()
     history_context = "\n".join(used_verses[-30:]) if used_verses else "(Belum ada riwayat)"
     
     prompt = f"""
-    Bertindaklah sebagai teolog dan pembuat konten rohani Kristen yang akurat.
-    Berikan {num_posts} referensi Ayat Alkitab (Terjemahan Baru LAI) yang valid beserta isi teks ayatnya secara utuh dan benar, lengkap dengan renungan singkat yang relevan.
+    Bertindaklah sebagai teolog dan pembuat konten rohani Kristen.
+    Berikan {num_posts} referensi Kitab dan Ayat Alkitab yang valid (contoh format: "Filipi 4:6", "Mazmur 23:1", "Yohanes 3:16"), beserta renungan singkat yang relevan.
     
     ATURAN MUTLAK: 
-    1. Teks ayat HARUS SESUAI dengan Alkitab Terjemahan Baru (TB) Lembaga Alkitab Indonesia.
+    1. Hanya berikan REFERENSI ayat dan RENUNGANNYA saja. Jangan tulis teks isi ayat di sini karena akan diambil langsung dari database Alkitab resmi.
     2. Kalimat renungan HARUS SINGKAT, padat, puitis (maksimal 1 kalimat pendek).
     3. Dilarang menggunakan referensi ayat yang ada di daftar riwayat ini: {history_context}
     
     Gunakan pemisah '---' di antara setiap naskah. Format wajib persis seperti ini:
     
-    REF: [Referensi Kitab dan Ayat, cth: Filipi 4:6]
-    AYAT: [Teks isi ayat Alkitab yang lengkap dan akurat sesuai Alkitab TB]
+    REF: [Referensi Kitab dan Ayat yang valid, cth: Filipi 4:6]
     RENUNGAN: [1 kalimat pendek bermakna rohani]
     ---
     """
@@ -57,7 +98,7 @@ def generate_batch_image_content(num_posts=3):
                 messages=[{"role": "user", "content": prompt}],
                 model="llama-3.1-8b-instant",
                 temperature=0.7,
-                max_tokens=1500,
+                max_tokens=1000,
             )
             raw_text = chat_completion.choices[0].message.content
             break
@@ -74,31 +115,35 @@ def generate_batch_image_content(num_posts=3):
         if not lines: continue
         
         ref = None
-        ayat = None
         renungan = None
         
         for line in lines:
             if line.startswith("REF:"): 
                 ref = line.replace("REF:", "").strip()
-            elif line.startswith("AYAT:"): 
-                ayat = line.replace("AYAT:", "").strip()
             elif line.startswith("RENUNGAN:"): 
                 renungan = line.replace("RENUNGAN:", "").strip()
                 
-        # VALIDASI KETAT: Hentikan bot seketika jika data tidak lengkap/valid (Tanpa Ayat Pengganti)
-        if not ref or not ayat:
-            raise Exception("❌ KEGAGALAN VALIDASI: AI gagal memberikan format referensi atau isi ayat Alkitab yang valid. Bot dihentikan demi menjaga keakuratan firman.")
+        # VALIDASI KETAT Tahap 1: Pastikan AI memberikan referensi
+        if not ref:
+            raise Exception("❌ KEGAGALAN VALIDASI: AI gagal memberikan referensi ayat yang valid.")
+            
+        # Ambil isi ayat murni dari API Alkitab Online (Terjemahan Baru)
+        official_ayat = fetch_online_bible_verse(ref)
+        
+        # VALIDASI KETAT Tahap 2: Hentikan bot seketika jika API gagal atau ayat tidak ditemukan
+        if not official_ayat:
+            raise Exception(f"❌ KEGAGALAN KRITIS: Gagal memuat teks resmi untuk ayat '{ref}' dari API Alkitab Online. Bot dihentikan demi menjaga keakuratan firman.")
             
         batch.append({
             "ref": ref,
-            "ayat": ayat,
+            "ayat": official_ayat,
             "renungan": renungan if renungan else "Penyertaan Tuhan adalah kekuatan kita."
         })
         
     if len(batch) < num_posts:
         raise Exception(f"❌ KEGAGALAN JUMLAH: Target naskah {num_posts} tidak terpenuhi (hanya didapat {len(batch)}). Bot dihentikan.")
         
-    print(f"✅ Berhasil menyiapkan {len(batch)} karya galeri terverifikasi!")
+    print(f"✅ Berhasil menyiapkan {len(batch)} karya galeri terverifikasi dari API Alkitab Online!")
     return batch
 
 # --- 2. PEMUAT FONT LOKAL ---
@@ -227,4 +272,4 @@ if __name__ == "__main__":
         print("🎉 PAMERAN 3 KARYA HARI INI TELAH SELESAI DITAMPILKAN DI GALERI!")
     except Exception as e:
         print(f"❌ Kesalahan pada galeri bot: {e}\n")
-        exit(1)  # Memastikan workflow GitHub Actions berhenti total jika terjadi kegagalan validasi
+        exit(1)  # Menghentikan bot total (exit code 1) jika terjadi masalah validasi atau API Alkitab
