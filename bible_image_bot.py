@@ -26,7 +26,7 @@ def mark_verse_as_used(verse_ref):
     with open(HISTORY_FILE, 'a', encoding='utf-8') as f:
         f.write(f"{verse_ref}\n")
 
-# --- FUNGSI AMBIL & VALIDASI AYAT DARI API ALKITAB ONLINE YANG STABIL ---
+# --- FUNGSI AMBIL & VALIDASI AYAT DARI API ALKITAB ONLINE ---
 def fetch_verified_bible_verse(reference_query):
     """
     Mengambil dan memvalidasi teks ayat Alkitab secara real-time dari API terstruktur.
@@ -34,7 +34,6 @@ def fetch_verified_bible_verse(reference_query):
     """
     print(f"📖 Memvalidasi ayat dari API Alkitab Resmi: {reference_query}...")
     
-    # Format URL sesuai endpoint SonnyLab API Alkitab
     encoded_ref = reference_query.strip()
     api_url = f"https://sonnylab.com/api/alkitab/{encoded_ref}"
     
@@ -43,21 +42,20 @@ def fetch_verified_bible_verse(reference_query):
             response = requests.get(api_url, timeout=15)
             if response.status_code == 200:
                 data = response.json()
-                # API mengembalikan list data ayat jika valid
                 if isinstance(data, list) and len(data) > 0:
                     verse_text = data[0].get("text", "").strip()
                     if verse_text:
                         print(f"✅ Ayat terverifikasi valid: {verse_text[:60]}...")
                         return verse_text
-            time.sleep(3)
+            time.sleep(2)
         except Exception as e:
             print(f"⚠️ Gagal koneksi API (Percobaan {attempt+1}/3): {e}")
-            time.sleep(4)
+            time.sleep(3)
             
     print(f"❌ Peringatan: Referensi '{reference_query}' gagal divalidasi dari API online.")
     return None
 
-# --- 1. GROQ AI: MENCARI REFERENSI & RENUNGAN (AYAT BERAGAM) ---
+# --- 1. GROQ AI: MENCARI REFERENSI & RENUNGAN (PARSING FLEKSIBEL) ---
 def generate_batch_image_content(num_posts=3):
     print(f"🕊️ Meminta Groq Llama-3 meracik {num_posts} referensi ayat yang beragam & renungan rohani...")
     
@@ -86,7 +84,7 @@ def generate_batch_image_content(num_posts=3):
             chat_completion = groq_client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
                 model="llama-3.1-8b-instant",
-                temperature=0.8,  # Ditingkatkan sedikit agar variasinya lebih luas/beragam
+                temperature=0.8,
                 max_tokens=1000,
             )
             raw_text = chat_completion.choices[0].message.content
@@ -98,6 +96,7 @@ def generate_batch_image_content(num_posts=3):
         raise Exception("❌ Gagal menghubungi Groq AI.")
 
     batch = []
+    # Memproses setiap blok naskah secara fleksibel
     for chunk in raw_text.split("---"):
         if len(batch) >= num_posts: break
         lines = [line.strip() for line in chunk.strip().split("\n") if line.strip()]
@@ -107,21 +106,33 @@ def generate_batch_image_content(num_posts=3):
         renungan = None
         
         for line in lines:
-            if line.startswith("REF:"): 
-                ref = line.replace("REF:", "").strip()
-            elif line.startswith("RENUNGAN:"): 
-                renungan = line.replace("RENUNGAN:", "").strip()
+            line_upper = line.upper()
+            if "REF:" in line_upper:
+                ref = line.split(":", 1)[1].strip()
+            elif "RENUNGAN:" in line_upper:
+                renungan = line.split(":", 1)[1].strip()
+        
+        # Jika baris pertama gagal mendeteksi REF secara ketat, ambil baris pertama yang tampak seperti referensi ayat
+        if not ref and len(lines) > 0:
+            potential_ref = lines[0].replace("REF", "").replace(":", "").strip()
+            if len(potential_ref) < 30: # Asumsi panjang nama kitab & nomor ayat wajar
+                ref = potential_ref
                 
-        # VALIDASI KETAT Tahap 1: Pastikan AI memberikan referensi
         if not ref:
-            raise Exception("❌ KEGAGALAN VALIDASI: AI gagal memberikan referensi ayat yang valid.")
+            continue # Lewati blok yang benar-benar tidak terbaca alih-alih langsung crash total
+            
+        # Bersihkan karakter tanda kurung siku jika ada yang terbawa dari AI
+        ref = ref.replace("[", "").replace("]", "").strip()
+        if renungan:
+            renungan = renungan.replace("[", "").replace("]", "").strip()
             
         # Ambil & Validasi isi ayat secara real-time dari API online
         official_ayat = fetch_verified_bible_verse(ref)
         
-        # VALIDASI KETAT Tahap 2: HENTIKAN BOT SEKETIKA JIKA AYAT TIDAK VALID DI API
+        # Jika ayat tidak ditemukan di API, lewati (coba cari yang lain) alih-alih menghentikan bot
         if not official_ayat:
-            raise Exception(f"❌ KEGAGALAN KRITIS: Referensi ayat '{ref}' tidak valid atau tidak ditemukan di server Alkitab. Bot dihentikan total demi menjaga keakuratan firman.")
+            print(f"⚠️ Melewati ayat '{ref}' karena tidak ditemukan di database API Alkitab.")
+            continue
             
         batch.append({
             "ref": ref,
@@ -129,8 +140,8 @@ def generate_batch_image_content(num_posts=3):
             "renungan": renungan if renungan else "Penyertaan Tuhan adalah kekuatan kita."
         })
         
-    if len(batch) < num_posts:
-        raise Exception(f"❌ KEGAGALAN JUMLAH: Target naskah {num_posts} tidak terpenuhi (hanya didapat {len(batch)}). Bot dihentikan.")
+    if len(batch) == 0:
+        raise Exception("❌ KEGAGALAN KRITIS: AI tidak menghasilkan satupun referensi ayat yang valid terverifikasi.")
         
     print(f"✅ Berhasil menyiapkan {len(batch)} karya galeri terverifikasi dengan ragam ayat berbeda!")
     return batch
@@ -222,14 +233,14 @@ def upload_photo_to_facebook(image_path, caption):
     else: 
         raise Exception(f"Gagal upload: {response}")
 
-# --- MAIN LOOP (BATCH 3 POST) ---
+# --- MAIN LOOP (BATCH POST) ---
 if __name__ == "__main__":
-    print("⚡ PAMERAN TIPOGRAFI ROHANI & SIMBOL KEKRISTENAN (BATCH 3 KARYA) ⚡\n")
+    print("⚡ PAMERAN TIPOGRAFI ROHANI & SIMBOL KEKRISTENAN (BATCH KARYA) ⚡\n")
     try:
         batch_items = generate_batch_image_content(num_posts=3)
         
         for i, item in enumerate(batch_items, 1):
-            print(f"\n--- MENAMPILKAN KARYA {i} DARI 3 ---")
+            print(f"\n--- MENAMPILKAN KARYA {i} DARI {len(batch_items)} ---")
             image_file = os.path.join(BASE_DIR, f"gallery_exhibit_{i}.jpg")
             caption = f"✨ {item['ref']} ✨\n\n\"{item['ayat']}\"\n\n{item['renungan']}\n\n#GaleriRohani #RenunganHarian #AyatAlkitab #SeniKristen #PameranIman"
             
@@ -251,7 +262,7 @@ if __name__ == "__main__":
                 print("⏳ Jeda 45 detik untuk persiapan kurasi karya berikutnya...\n")
                 time.sleep(45)
                 
-        print("🎉 PAMERAN 3 KARYA HARI INI TELAH SELESAI DITAMPILKAN DI GALERI!")
+        print("🎉 PAMERAN KARYA HARI INI TELAH SELESAI DITAMPILKAN DI GALERI!")
     except Exception as e:
         print(f"❌ Kesalahan pada galeri bot: {e}\n")
-        exit(1)  # Menghentikan bot total (exit code 1) jika terjadi kegagalan validasi
+        exit(1)
