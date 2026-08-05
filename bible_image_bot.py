@@ -159,7 +159,7 @@ def generate_background_image(prompt, output_filename):
         
     # Menggunakan model Nano Banana sesuai instruksi migrasi (gemini-2.5-flash-image)
     # Memanggil endpoint standar Gemini: generateContent
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={api_key}"
+   url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key={api_key}"
     
     # Mempertajam prompt untuk hasil fotografi estetik 
     # Karena parameter aspectRatio lama sudah usang di API ini, kita berikan instruksi rasio di dalam prompt
