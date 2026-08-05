@@ -149,38 +149,53 @@ def load_aesthetic_fonts():
             
     return fonts
 
-# --- 3. GENERATOR GAMBAR POLLINATIONS AI (100% GRATIS) ---
+# --- 3. GENERATOR GAMBAR (PEXELS API - FOTO ASLI STABIL) ---
 def generate_background_image(prompt, output_filename):
-    print(f"🎨 Memotret momen keseharian dengan Pollinations AI: '{prompt[:40]}...'")
+    print("🎨 Mencari foto momen keseharian asli dari Pexels...")
     
-    # Modifikasi prompt agar hasilnya seindah model premium
-    full_prompt = f"{prompt}, portrait aspect ratio, professional photography, soft natural lighting, aesthetic, 8k resolution, masterpiece"
-    encoded_prompt = urllib.parse.quote(full_prompt)
-    
-    # Coba maksimal 3 kali jika server sibuk
-    for attempt in range(3):
-        # Gunakan seed acak agar jika gagal, AI memproses gambar yang benar-benar baru
-        seed = random.randint(1, 999999)
-        url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1080&height=1350&nologo=true&seed={seed}"
+    api_key = os.environ.get("PEXELS_API_KEY")
+    if not api_key:
+        raise Exception("PEXELS_API_KEY belum diatur di environment variable!")
         
+    # Mengambil kata kunci utama dari prompt AI (misal: "lifestyle, coffee, bible, nature")
+    # Kita sederhanakan pencarian agar Pexels mudah menemukan foto yang cocok
+    search_query = "aesthetic daily life nature coffee" 
+    
+    # Pilih halaman acak agar foto yang diambil bervariasi setiap harinya
+    random_page = random.randint(1, 5)
+    url = f"https://api.pexels.com/v1/search?query={search_query}&per_page=15&page={random_page}&orientation=portrait"
+    
+    headers = {"Authorization": api_key}
+    
+    for attempt in range(3):
         try:
-            # Waktu tunggu diperpanjang menjadi 45 detik
-            response = requests.get(url, timeout=45)
+            response = requests.get(url, headers=headers, timeout=30)
             
             if response.status_code == 200:
-                with open(output_filename, 'wb') as f:
-                    f.write(response.content)
-                return output_filename
+                data = response.json()
+                if not data.get("photos"):
+                    raise Exception("Pexels tidak menemukan foto dengan kata kunci tersebut.")
+                
+                # Pilih 1 foto secara acak dari 15 hasil yang didapat
+                selected_photo = random.choice(data["photos"])
+                image_url = selected_photo["src"]["large2x"] # Kualitas tinggi
+                
+                # Unduh gambar tersebut
+                img_response = requests.get(image_url, timeout=30)
+                if img_response.status_code == 200:
+                    with open(output_filename, 'wb') as f:
+                        f.write(img_response.content)
+                    return output_filename
+                    
             else:
-                print(f"⚠️ Server Pollinations sibuk (HTTP {response.status_code}). Percobaan {attempt+1}/3...")
+                print(f"⚠️ Gagal dari Pexels (HTTP {response.status_code}). Percobaan {attempt+1}/3...")
                 
         except requests.exceptions.RequestException as e:
-            print(f"⚠️ Jaringan lambat/terputus (Percobaan {attempt+1}/3): {e}")
+            print(f"⚠️ Request error (Percobaan {attempt+1}/3): {e}")
             
-        # Wajib jeda 15 detik agar tidak diblokir sistem anti-spam Pollinations
-        time.sleep(15) 
+        time.sleep(5)
 
-    raise Exception("Gagal menghasilkan latar galeri dari Pollinations AI setelah 3 percobaan.")
+    raise Exception("Gagal mengunduh latar galeri dari Pexels setelah 3 percobaan.")
 
 # --- 4. ENGINE TATA LETAK TEKS ARTISTIK (LAPANG & AMAN) ---
 def draw_text_with_soft_shadow(draw, position, text, font, text_color, shadow_color="black"):
