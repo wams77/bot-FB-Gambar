@@ -31,7 +31,8 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_ACCESS_TOKEN: ${{ secrets.FB_ACCESS_TOKEN }}
-          HF_API_KEY: ${{ secrets.HF_API_KEY }}   # <--- TAMBAHKAN BARIS INI
+          HF_API_KEY: ${{ secrets.HF_API_KEY }} 
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python bible_image_bot.py
 
       - name: Simpan Memori Bot (Anti-Duplikasi)
