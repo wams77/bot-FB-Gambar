@@ -4,6 +4,7 @@ import random
 import requests
 import urllib.parse
 import gc
+import base64  # Ditambahkan untuk memproses gambar dari Google API
 from bs4 import BeautifulSoup
 from groq import Groq
 from PIL import Image, ImageDraw, ImageFont, ImageOps
@@ -143,43 +144,55 @@ def load_aesthetic_fonts():
             
     return fonts
 
-# --- 3. GENERATOR GAMBAR POLLINATIONS ---
+# --- 3. GENERATOR GAMBAR GOOGLE AI STUDIO (IMAGEN 3) ---
 def generate_background_image(prompt, output_filename):
-    print(f"🎨 Memotret momen keseharian dengan Hugging Face: '{prompt[:40]}...'")
+    print(f"🎨 Memotret momen keseharian dengan Google Imagen 3: '{prompt[:40]}...'")
     
-    # Menggunakan model Stable Diffusion XL (Gratis di HF)
-    API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise Exception("GEMINI_API_KEY belum diatur di environment variable! Pastikan sudah ditambahkan di GitHub Secrets.")
+        
+    # Endpoint resmi Google AI Studio untuk model Imagen 3 (versi beta)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key={api_key}"
     
-    # Ambil API Key dari environment
-    hf_api_key = os.environ.get("HF_API_KEY")
-    if not hf_api_key:
-        raise Exception("HF_API_KEY belum diatur di environment variable!")
-
-    headers = {"Authorization": f"Bearer {hf_api_key}"}
+    # Mempertajam prompt untuk hasil fotografi yang estetik
+    full_prompt = f"{prompt}, professional photography, soft lighting, aesthetic, 8k resolution, masterpiece"
     
-    # Modifikasi prompt agar ukurannya portrait dan estetik
-    full_prompt = f"{prompt}, professional photography, cinematic lighting, aesthetic, 8k resolution, masterpiece"
-    payload = {"inputs": full_prompt}
-
-    # Coba maksimal 3 kali jika server sibuk
+    payload = {
+        "instances": [
+            {"prompt": full_prompt}
+        ],
+        "parameters": {
+            "sampleCount": 1,
+            "aspectRatio": "3:4" # Rasio portrait, sangat cocok untuk galeri FB/IG
+        }
+    }
+    
+    headers = {"Content-Type": "application/json"}
+    
     for attempt in range(3):
         try:
-            response = requests.post(API_URL, headers=headers, json=payload, timeout=60)
+            # Batas waktu tunggu 60 detik (proses AI biasanya memakan 10-15 detik)
+            response = requests.post(url, headers=headers, json=payload, timeout=60)
             
             if response.status_code == 200:
-                with open(output_filename, 'wb') as f:
-                    f.write(response.content)
+                data = response.json()
+                # Google mengembalikan gambar dalam format teks Base64, kita ubah kembali jadi file gambar
+                img_b64 = data["predictions"][0]["bytesBase64"]
+                
+                with open(output_filename, "wb") as f:
+                    f.write(base64.b64decode(img_b64))
+                
                 return output_filename
             else:
-                # HF terkadang melempar status 503 jika model sedang "loading" ke memori server
-                print(f"⚠️ Server HF sibuk (HTTP {response.status_code}). Percobaan {attempt+1}/3...")
+                print(f"⚠️ Gagal dari Google API (HTTP {response.status_code}): {response.text}")
                 
         except requests.exceptions.RequestException as e:
-            print(f"⚠️ Request error: {e}")
+            print(f"⚠️ Request error (Percobaan {attempt+1}/3): {e}")
             
-        time.sleep(15) # Jeda agar tidak terkena rate limit
+        time.sleep(10) # Jeda sebelum mencoba lagi
 
-    raise Exception("Gagal menghasilkan latar galeri dari Hugging Face AI setelah 3 percobaan.")
+    raise Exception("Gagal menghasilkan latar galeri dari Google AI Studio setelah 3 percobaan.")
 
 # --- 4. ENGINE TATA LETAK TEKS ARTISTIK (LAPANG & AMAN) ---
 def draw_text_with_soft_shadow(draw, position, text, font, text_color, shadow_color="black"):
