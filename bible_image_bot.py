@@ -149,28 +149,31 @@ def load_aesthetic_fonts():
             
     return fonts
 
-# --- 3. GENERATOR GAMBAR GOOGLE AI STUDIO (IMAGEN 3) ---
+# --- 3. GENERATOR GAMBAR GOOGLE AI (NANO BANANA / GEMINI FLASH IMAGE) ---
 def generate_background_image(prompt, output_filename):
-    print(f"🎨 Memotret momen keseharian dengan Google Imagen 3: '{prompt[:40]}...'")
+    print(f"🎨 Memotret momen keseharian dengan Google Nano Banana: '{prompt[:40]}...'")
     
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        raise Exception("GEMINI_API_KEY belum diatur di environment variable!")
+        raise Exception("GEMINI_API_KEY belum diatur di environment variable! Pastikan sudah ditambahkan di GitHub Secrets.")
         
-    # UPDATE: Mengganti model menjadi imagen-3.0-generate-002 yang aktif
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key={api_key}"
+    # Menggunakan model Nano Banana sesuai instruksi migrasi (gemini-2.5-flash-image)
+    # Memanggil endpoint standar Gemini: generateContent
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={api_key}"
     
-    # Mempertajam prompt untuk hasil fotografi yang estetik
-    full_prompt = f"{prompt}, professional photography, soft lighting, aesthetic, 8k resolution, masterpiece"
+    # Mempertajam prompt untuk hasil fotografi estetik 
+    # Karena parameter aspectRatio lama sudah usang di API ini, kita berikan instruksi rasio di dalam prompt
+    full_prompt = f"{prompt}, professional photography, soft lighting, aesthetic, masterpiece, portrait orientation 3:4"
     
+    # Payload menggunakan format Gemini standar
     payload = {
-        "instances": [
-            {"prompt": full_prompt}
-        ],
-        "parameters": {
-            "sampleCount": 1,
-            "aspectRatio": "3:4" 
-        }
+        "contents": [
+            {
+                "parts": [
+                    {"text": full_prompt}
+                ]
+            }
+        ]
     }
     
     headers = {"Content-Type": "application/json"}
@@ -181,8 +184,22 @@ def generate_background_image(prompt, output_filename):
             
             if response.status_code == 200:
                 data = response.json()
-                img_b64 = data["predictions"][0]["bytesBase64"]
+                img_b64 = None
                 
+                # Menelusuri 'content parts' untuk mencari data gambar Base64
+                try:
+                    parts = data["candidates"][0]["content"]["parts"]
+                    for part in parts:
+                        if "inlineData" in part:
+                            img_b64 = part["inlineData"]["data"]
+                            break
+                except (KeyError, IndexError):
+                    pass
+                
+                if not img_b64:
+                    print(f"⚠️ Gagal mengekstrak gambar dari respons API: {data}")
+                    raise Exception("Format respons API tidak sesuai atau gambar diblokir oleh filter keamanan (Safety Settings).")
+                    
                 with open(output_filename, "wb") as f:
                     f.write(base64.b64decode(img_b64))
                 
@@ -193,7 +210,70 @@ def generate_background_image(prompt, output_filename):
         except requests.exceptions.RequestException as e:
             print(f"⚠️ Request error (Percobaan {attempt+1}/3): {e}")
             
-        time.sleep(10)
+        time.sleep(10) # Jeda sebelum mencoba lagi
+
+    raise Exception("Gagal menghasilkan latar galeri dari Google AI Studio setelah 3 percobaan.")# --- 3. GENERATOR GAMBAR GOOGLE AI (NANO BANANA / GEMINI FLASH IMAGE) ---
+def generate_background_image(prompt, output_filename):
+    print(f"🎨 Memotret momen keseharian dengan Google Nano Banana: '{prompt[:40]}...'")
+    
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise Exception("GEMINI_API_KEY belum diatur di environment variable! Pastikan sudah ditambahkan di GitHub Secrets.")
+        
+    # Menggunakan model Nano Banana sesuai instruksi migrasi (gemini-2.5-flash-image)
+    # Memanggil endpoint standar Gemini: generateContent
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={api_key}"
+    
+    # Mempertajam prompt untuk hasil fotografi estetik 
+    # Karena parameter aspectRatio lama sudah usang di API ini, kita berikan instruksi rasio di dalam prompt
+    full_prompt = f"{prompt}, professional photography, soft lighting, aesthetic, masterpiece, portrait orientation 3:4"
+    
+    # Payload menggunakan format Gemini standar
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": full_prompt}
+                ]
+            }
+        ]
+    }
+    
+    headers = {"Content-Type": "application/json"}
+    
+    for attempt in range(3):
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=60)
+            
+            if response.status_code == 200:
+                data = response.json()
+                img_b64 = None
+                
+                # Menelusuri 'content parts' untuk mencari data gambar Base64
+                try:
+                    parts = data["candidates"][0]["content"]["parts"]
+                    for part in parts:
+                        if "inlineData" in part:
+                            img_b64 = part["inlineData"]["data"]
+                            break
+                except (KeyError, IndexError):
+                    pass
+                
+                if not img_b64:
+                    print(f"⚠️ Gagal mengekstrak gambar dari respons API: {data}")
+                    raise Exception("Format respons API tidak sesuai atau gambar diblokir oleh filter keamanan (Safety Settings).")
+                    
+                with open(output_filename, "wb") as f:
+                    f.write(base64.b64decode(img_b64))
+                
+                return output_filename
+            else:
+                print(f"⚠️ Gagal dari Google API (HTTP {response.status_code}): {response.text}")
+                
+        except requests.exceptions.RequestException as e:
+            print(f"⚠️ Request error (Percobaan {attempt+1}/3): {e}")
+            
+        time.sleep(10) # Jeda sebelum mencoba lagi
 
     raise Exception("Gagal menghasilkan latar galeri dari Google AI Studio setelah 3 percobaan.")
 
