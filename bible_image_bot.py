@@ -2,12 +2,9 @@ import os
 import time
 import random
 import requests
-import urllib.parse
 import gc
-import base64  # Ditambahkan untuk memproses gambar dari Google API
-from bs4 import BeautifulSoup
 from groq import Groq
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFont
 
 # Mengunci direktori kerja agar file tidak "nyasar"
 BASE_DIR = os.path.abspath(os.getcwd())
@@ -29,62 +26,27 @@ def mark_verse_as_used(verse_ref):
     with open(HISTORY_FILE, 'a', encoding='utf-8') as f:
         f.write(f"{verse_ref}\n")
 
-# --- FUNGSI AMBIL AYAT RESMI DARI ALKITAB SABDA ---
-def fetch_sabda_bible_verse(reference_query):
-    """
-    Mengambil isi ayat Alkitab secara akurat langsung dari situs alkitab.sabda.org
-    dengan sistem retry jika server sedang lambat.
-    """
-    print(f"📖 Mengambil teks resmi Alkitab SABDA untuk: {reference_query}...")
-    encoded_ref = urllib.parse.quote(reference_query)
-    url = f"https://alkitab.sabda.org/passage.php?passage={encoded_ref}"
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    }
-    
-    # Coba hingga 3 kali jika server SABDA sedang lambat
-    for attempt in range(3):
-        try:
-            # Tingkatkan timeout dari 10 menjadi 30 detik
-            response = requests.get(url, headers=headers, timeout=30)
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, 'html.parser')
-                passage_box = soup.find('td', {'class': 'text'}) or soup.find('div', {'id': 'text'})
-                
-                if passage_box:
-                    text = passage_box.get_text(separator=" ", strip=True)
-                    clean_text = ' '.join(text.split())
-                    if len(clean_text) > 10:
-                        print(f"✅ Berhasil mengambil dari SABDA: {clean_text[:60]}...")
-                        return clean_text
-        except requests.exceptions.RequestException as e:
-            print(f"⚠️ SABDA timeout/error (Percobaan {attempt+1}/3)... mencoba lagi.")
-            time.sleep(5)
-            
-    print("❌ Gagal mengambil dari SABDA Web setelah 3 percobaan.")
-    return None
-    
-# --- 1. GROQ AI: GENERATOR BATCH 3 KONTEN (REFERENSI & RENUNGAN) ---
+# --- 1. GROQ AI: GENERATOR BATCH KONTEN (VALIDASI KETAT TANPA AYAT PENGGANTI) ---
 def generate_batch_image_content(num_posts=3):
-    print(f"🕊️ Meminta Groq Llama-3 (8B Instant) meracik {num_posts} naskah momen keseharian & simbol kekristenan...")
+    print(f"🕊️ Meminta Groq Llama-3 meracik {num_posts} naskah ayat Alkitab & renungan yang akurat...")
     
     used_verses = get_used_verses()
     history_context = "\n".join(used_verses[-30:]) if used_verses else "(Belum ada riwayat)"
     
     prompt = f"""
-    Bertindaklah sebagai fotografer profesional yang menangkap momen-momen keseharian yang memiliki simbol-simbol kekristenan yang hangat dan penuh makna.
-    Berikan {num_posts} referensi Kitab dan Ayat Alkitab yang valid (contoh format: "Yesaya 41:10", "Filipi 4:6", "Mazmur 23:1"), beserta renungan singkat dan deskripsi visual foto.
+    Bertindaklah sebagai teolog dan pembuat konten rohani Kristen yang akurat.
+    Berikan {num_posts} referensi Ayat Alkitab (Terjemahan Baru LAI) yang valid beserta isi teks ayatnya secara utuh dan benar, lengkap dengan renungan singkat yang relevan.
     
     ATURAN MUTLAK: 
-    1. Kalimat renungan (deskripsi) HARUS SANGAT SINGKAT, padat, puitis, maksimal 1 kalimat pendek (bukan paragraf panjang) agar tidak menutupi atau terpotong di bagian bawah gambar.
-    2. Dilarang keras menggunakan referensi ayat yang mirip dengan daftar ini: {history_context}
+    1. Teks ayat HARUS SESUAI dengan Alkitab Terjemahan Baru (TB) Lembaga Alkitab Indonesia.
+    2. Kalimat renungan HARUS SINGKAT, padat, puitis (maksimal 1 kalimat pendek).
+    3. Dilarang menggunakan referensi ayat yang ada di daftar riwayat ini: {history_context}
     
-    Gunakan pemisah '---' di antara setiap naskah. Format wajib persis seperti ini untuk setiap naskah:
+    Gunakan pemisah '---' di antara setiap naskah. Format wajib persis seperti ini:
     
-    REF: [Referensi Kitab dan Ayat yang valid, cth: Yesaya 41:10]
-    RENUNGAN: [1 kalimat pendek dan bermakna tentang keseharian]
-    PROMPT_GAMBAR: [Deskripsi bahasa Inggris untuk foto galeri pameran bernuansa keseharian dengan simbol kekristenan. Contoh: "Warm daily life photography, a hot cup of coffee next to an open Bible on a wooden table, soft morning sunlight, cinematic, aesthetic, masterpiece, 8k"]
+    REF: [Referensi Kitab dan Ayat, cth: Filipi 4:6]
+    AYAT: [Teks isi ayat Alkitab yang lengkap dan akurat sesuai Alkitab TB]
+    RENUNGAN: [1 kalimat pendek bermakna rohani]
     ---
     """
     
@@ -101,7 +63,7 @@ def generate_batch_image_content(num_posts=3):
             break
         except Exception as e:
             print(f"⚠️ Error Groq (Percobaan {attempt+1}/3): {e}")
-            time.sleep(15)
+            time.sleep(10)
     else:
         raise Exception("❌ Gagal menghubungi Groq AI.")
 
@@ -111,28 +73,32 @@ def generate_batch_image_content(num_posts=3):
         lines = [line.strip() for line in chunk.strip().split("\n") if line.strip()]
         if not lines: continue
         
-        ref = "Mazmur 23:1"
-        renungan = "Ketenangan sejati ditemukan saat kita bersandar pada kasih karunia-Nya."
-        prompt_gambar = "Warm daily life photography, open Bible on wooden table, soft morning sunlight, cinematic, 8k"
+        ref = None
+        ayat = None
+        renungan = None
         
         for line in lines:
-            if line.startswith("REF:"): ref = line.replace("REF:", "").strip()
-            elif line.startswith("RENUNGAN:"): renungan = line.replace("RENUNGAN:", "").strip()
-            elif line.startswith("PROMPT_GAMBAR:"): prompt_gambar = line.replace("PROMPT_GAMBAR:", "").strip()
+            if line.startswith("REF:"): 
+                ref = line.replace("REF:", "").strip()
+            elif line.startswith("AYAT:"): 
+                ayat = line.replace("AYAT:", "").strip()
+            elif line.startswith("RENUNGAN:"): 
+                renungan = line.replace("RENUNGAN:", "").strip()
                 
-        # AMBIL ISI AYAT MUTLAK DARI ALKITAB SABDA
-        official_ayat = fetch_sabda_bible_verse(ref)
-        if not official_ayat:
-            official_ayat = "Segala perkara dapat kutanggung di dalam Dia yang memberi kekuatan kepadaku."
+        # VALIDASI KETAT: Hentikan bot seketika jika data tidak lengkap/valid (Tanpa Ayat Pengganti)
+        if not ref or not ayat:
+            raise Exception("❌ KEGAGALAN VALIDASI: AI gagal memberikan format referensi atau isi ayat Alkitab yang valid. Bot dihentikan demi menjaga keakuratan firman.")
             
         batch.append({
             "ref": ref,
-            "ayat": official_ayat,
-            "renungan": renungan,
-            "prompt_gambar": prompt_gambar
+            "ayat": ayat,
+            "renungan": renungan if renungan else "Penyertaan Tuhan adalah kekuatan kita."
         })
         
-    print(f"✅ Berhasil menyiapkan {len(batch)} karya galeri terverifikasi SABDA!")
+    if len(batch) < num_posts:
+        raise Exception(f"❌ KEGAGALAN JUMLAH: Target naskah {num_posts} tidak terpenuhi (hanya didapat {len(batch)}). Bot dihentikan.")
+        
+    print(f"✅ Berhasil menyiapkan {len(batch)} karya galeri terverifikasi!")
     return batch
 
 # --- 2. PEMUAT FONT LOKAL ---
@@ -149,120 +115,72 @@ def load_aesthetic_fonts():
             
     return fonts
 
-# --- 3. GENERATOR GAMBAR (PEXELS API - FOTO ASLI STABIL) ---
-def generate_background_image(prompt, output_filename):
-    print("🎨 Mencari foto momen keseharian asli dari Pexels...")
-    
-    api_key = os.environ.get("PEXELS_API_KEY")
-    if not api_key:
-        raise Exception("PEXELS_API_KEY belum diatur di environment variable!")
-        
-    # Mengambil kata kunci utama dari prompt AI (misal: "lifestyle, coffee, bible, nature")
-    # Kita sederhanakan pencarian agar Pexels mudah menemukan foto yang cocok
-    search_query = "aesthetic daily life nature coffee" 
-    
-    # Pilih halaman acak agar foto yang diambil bervariasi setiap harinya
-    random_page = random.randint(1, 5)
-    url = f"https://api.pexels.com/v1/search?query={search_query}&per_page=15&page={random_page}&orientation=portrait"
-    
-    headers = {"Authorization": api_key}
-    
-    for attempt in range(3):
-        try:
-            response = requests.get(url, headers=headers, timeout=30)
-            
-            if response.status_code == 200:
-                data = response.json()
-                if not data.get("photos"):
-                    raise Exception("Pexels tidak menemukan foto dengan kata kunci tersebut.")
-                
-                # Pilih 1 foto secara acak dari 15 hasil yang didapat
-                selected_photo = random.choice(data["photos"])
-                image_url = selected_photo["src"]["large2x"] # Kualitas tinggi
-                
-                # Unduh gambar tersebut
-                img_response = requests.get(image_url, timeout=30)
-                if img_response.status_code == 200:
-                    with open(output_filename, 'wb') as f:
-                        f.write(img_response.content)
-                    return output_filename
-                    
-            else:
-                print(f"⚠️ Gagal dari Pexels (HTTP {response.status_code}). Percobaan {attempt+1}/3...")
-                
-        except requests.exceptions.RequestException as e:
-            print(f"⚠️ Request error (Percobaan {attempt+1}/3): {e}")
-            
-        time.sleep(5)
-
-    raise Exception("Gagal mengunduh latar galeri dari Pexels setelah 3 percobaan.")
-
-# --- 4. ENGINE TATA LETAK TEKS ARTISTIK (LAPANG & AMAN) ---
-def draw_text_with_soft_shadow(draw, position, text, font, text_color, shadow_color="black"):
-    x, y = position
-    draw.text((x + 3, y + 4), text, font=font, fill=shadow_color)
-    draw.text((x, y), text, font=font, fill=text_color)
-
+# --- 3. GENERATOR LATAR & TIPOGRAFI LOKAL (100% AMAN TANPA API EKSTERNAL) ---
 def create_aesthetic_bible_post(item, output_path, img_size=(1080, 1350)):
-    print("✨ Menyusun galeri pameran foto & tipografi...")
-    bg_path = os.path.join(BASE_DIR, "temp_bg.jpg")
-    generate_background_image(item['prompt_gambar'], bg_path)
+    print("✨ Menyusun galeri pameran seni tipografi rohani...")
     
-    img = Image.open(bg_path).convert("RGBA")
-    img = ImageOps.fit(img, img_size, Image.Resampling.LANCZOS)
-    
-    vignette = Image.new('RGBA', img_size, (0, 0, 0, 0))
-    v_draw = ImageDraw.Draw(vignette)
-    for y in range(img_size[1]):
-        alpha = int(255 * (abs(y - img_size[1]/2) / (img_size[1]/2)) ** 1.8)
-        if alpha > 190: alpha = 190
-        v_draw.line([(0, y), (img_size[0], y)], fill=(0, 0, 0, alpha))
-        
-    img = Image.alpha_composite(img, vignette)
+    # Membuat latar belakang gradasi artistik elegan (Nuansa galeri pameran berkelas)
+    img = Image.new("RGBA", img_size, "#1a1a24")
     draw = ImageDraw.Draw(img)
+    
+    # Efek gradasi halus vertikal
+    for y in range(img_size[1]):
+        r = int(26 + (y / img_size[1]) * 20)
+        g = int(26 + (y / img_size[1]) * 15)
+        b = int(36 + (y / img_size[1]) * 40)
+        draw.line([(0, y), (img_size[0], y)], fill=(r, g, b, 255))
+        
+    # Bingkai artistik tipis ala galeri seni
+    draw.rectangle([50, 50, img_size[0]-50, img_size[1]-50], outline="#FFDF73", width=2)
     
     fonts = load_aesthetic_fonts()
     font_ref = ImageFont.truetype(fonts['cinzel'], 48)
-    font_ayat = ImageFont.truetype(fonts['playfair_italic'], 50)
-    font_renungan = ImageFont.truetype(fonts['montserrat_black'], 32)
+    font_ayat = ImageFont.truetype(fonts['playfair_italic'], 46)
+    font_renungan = ImageFont.truetype(fonts['montserrat_black'], 30)
     
     def get_text_width(text, font):
         try: return draw.textlength(text, font=font)
         except: return draw.textbbox((0, 0), text, font=font)[2]
 
-    def chunk_text(text, words_per_line=4):
+    def chunk_text(text, words_per_line=5):
         words = text.split()
         return [" ".join(words[i:i+words_per_line]) for i in range(0, len(words), words_per_line)]
 
     lines_ayat = chunk_text(f'"{item["ayat"]}"', words_per_line=4)
     lines_renungan = chunk_text(item['renungan'], words_per_line=5)
     
+    # Render Referensi Ayat
     ref_text = item['ref'].upper()
     w_ref = get_text_width(ref_text, font_ref)
-    draw_text_with_soft_shadow(draw, ((img_size[0]-w_ref)//2, 220), ref_text, font_ref, "#FFDF73")
+    draw.text((((img_size[0]-w_ref)//2) + 2, 182), ref_text, font=font_ref, fill="black")
+    draw.text(((img_size[0]-w_ref)//2, 180), ref_text, font=font_ref, fill="#FFDF73")
     
-    draw.line([(img_size[0]//2 - 120, 310), (img_size[0]//2 + 120, 310)], fill="#FFDF73", width=2)
+    # Garis pemisah
+    draw.line([(img_size[0]//2 - 100, 260), (img_size[0]//2 + 100, 260)], fill="#FFDF73", width=2)
     
-    y_ayat = 400
+    # Render Isi Ayat
+    y_ayat = 340
     for line in lines_ayat:
         w_ayat = get_text_width(line, font_ayat)
-        draw_text_with_soft_shadow(draw, ((img_size[0]-w_ayat)//2, y_ayat), line, font_ayat, "#FFFFFF")
-        y_ayat += 70
+        draw.text((((img_size[0]-w_ayat)//2) + 2, y_ayat + 2), line, font=font_ayat, fill="black")
+        draw.text(((img_size[0]-w_ayat)//2, y_ayat), line, font=font_ayat, fill="#FFFFFF")
+        y_ayat += 68
 
-    y_renungan = 900
+    # Render Renungan Singkat
+    y_renungan = 950
     for line in lines_renungan:
         w_ren = get_text_width(line, font_renungan)
-        draw_text_with_soft_shadow(draw, ((img_size[0]-w_ren)//2, y_renungan), line, font_renungan, "#E0E0E0")
-        y_renungan += 48
+        draw.text((((img_size[0]-w_ren)//2) + 2, y_renungan + 2), line, font=font_renungan, fill="black")
+        draw.text(((img_size[0]-w_ren)//2, y_renungan), line, font=font_renungan, fill="#D0D0D0")
+        y_renungan += 44
 
     final_img = img.convert("RGB")
     final_img.save(output_path, quality=100)
     
-    if os.path.exists(bg_path): os.remove(bg_path)
-    print("✅ Karya galeri berhasil dicetak!")
+    print("✅ Karya galeri tipografi berhasil dicetak!")
     return output_path
 
-# --- 5. UPLOAD KE FACEBOOK ---
+# --- 4. UPLOAD KE FACEBOOK ---
 def upload_photo_to_facebook(image_path, caption):
     print("🚀 Mengunggah karya galeri ke Facebook...")
     page_id = os.environ.get("FB_PAGE_ID")
@@ -279,7 +197,7 @@ def upload_photo_to_facebook(image_path, caption):
 
 # --- MAIN LOOP (BATCH 3 POST) ---
 if __name__ == "__main__":
-    print("⚡ PAMERAN FOTO KESEHARIAN & SIMBOL KEKRISTENAN (BATCH 3 KARYA) ⚡\n")
+    print("⚡ PAMERAN TIPOGRAFI ROHANI & SIMBOL KEKRISTENAN (BATCH 3 KARYA) ⚡\n")
     try:
         batch_items = generate_batch_image_content(num_posts=3)
         
@@ -309,3 +227,4 @@ if __name__ == "__main__":
         print("🎉 PAMERAN 3 KARYA HARI INI TELAH SELESAI DITAMPILKAN DI GALERI!")
     except Exception as e:
         print(f"❌ Kesalahan pada galeri bot: {e}\n")
+        exit(1)  # Memastikan workflow GitHub Actions berhenti total jika terjadi kegagalan validasi
