@@ -149,68 +149,38 @@ def load_aesthetic_fonts():
             
     return fonts
 
-# --- 3. GENERATOR GAMBAR GOOGLE AI (NANO BANANA / GEMINI FLASH IMAGE) ---
+# --- 3. GENERATOR GAMBAR POLLINATIONS AI (100% GRATIS) ---
 def generate_background_image(prompt, output_filename):
-    print(f"🎨 Memotret momen keseharian dengan Google Nano Banana: '{prompt[:40]}...'")
+    print(f"🎨 Memotret momen keseharian dengan Pollinations AI: '{prompt[:40]}...'")
     
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        raise Exception("GEMINI_API_KEY belum diatur di environment variable! Pastikan sudah ditambahkan di GitHub Secrets.")
-        
-    # Menggunakan model Nano Banana 2 Lite
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key={api_key}"
+    # Modifikasi prompt agar hasilnya seindah model premium
+    full_prompt = f"{prompt}, portrait aspect ratio, professional photography, soft natural lighting, aesthetic, 8k resolution, masterpiece"
+    encoded_prompt = urllib.parse.quote(full_prompt)
     
-    # Mempertajam prompt untuk hasil fotografi estetik 
-    full_prompt = f"{prompt}, professional photography, soft lighting, aesthetic, masterpiece, portrait orientation 3:4"
-    
-    # Payload menggunakan format Gemini standar
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": full_prompt}
-                ]
-            }
-        ]
-    }
-    
-    headers = {"Content-Type": "application/json"}
-    
+    # Coba maksimal 3 kali jika server sibuk
     for attempt in range(3):
+        # Gunakan seed acak agar jika gagal, AI memproses gambar yang benar-benar baru
+        seed = random.randint(1, 999999)
+        url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1080&height=1350&nologo=true&seed={seed}"
+        
         try:
-            response = requests.post(url, headers=headers, json=payload, timeout=60)
+            # Waktu tunggu diperpanjang menjadi 45 detik
+            response = requests.get(url, timeout=45)
             
             if response.status_code == 200:
-                data = response.json()
-                img_b64 = None
-                
-                # Menelusuri 'content parts' untuk mencari data gambar Base64
-                try:
-                    parts = data["candidates"][0]["content"]["parts"]
-                    for part in parts:
-                        if "inlineData" in part:
-                            img_b64 = part["inlineData"]["data"]
-                            break
-                except (KeyError, IndexError):
-                    pass
-                
-                if not img_b64:
-                    print(f"⚠️ Gagal mengekstrak gambar dari respons API: {data}")
-                    raise Exception("Format respons API tidak sesuai atau gambar diblokir oleh filter keamanan (Safety Settings).")
-                    
-                with open(output_filename, "wb") as f:
-                    f.write(base64.b64decode(img_b64))
-                
+                with open(output_filename, 'wb') as f:
+                    f.write(response.content)
                 return output_filename
             else:
-                print(f"⚠️ Gagal dari Google API (HTTP {response.status_code}): {response.text}")
+                print(f"⚠️ Server Pollinations sibuk (HTTP {response.status_code}). Percobaan {attempt+1}/3...")
                 
         except requests.exceptions.RequestException as e:
-            print(f"⚠️ Request error (Percobaan {attempt+1}/3): {e}")
+            print(f"⚠️ Jaringan lambat/terputus (Percobaan {attempt+1}/3): {e}")
             
-        time.sleep(10) # Jeda sebelum mencoba lagi
+        # Wajib jeda 15 detik agar tidak diblokir sistem anti-spam Pollinations
+        time.sleep(15) 
 
-    raise Exception("Gagal menghasilkan latar galeri dari Google AI Studio setelah 3 percobaan.")
+    raise Exception("Gagal menghasilkan latar galeri dari Pollinations AI setelah 3 percobaan.")
 
 # --- 4. ENGINE TATA LETAK TEKS ARTISTIK (LAPANG & AMAN) ---
 def draw_text_with_soft_shadow(draw, position, text, font, text_color, shadow_color="black"):
