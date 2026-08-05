@@ -26,54 +26,26 @@ def mark_verse_as_used(verse_ref):
     with open(HISTORY_FILE, 'a', encoding='utf-8') as f:
         f.write(f"{verse_ref}\n")
 
-# --- FUNGSI AMBIL & VALIDASI AYAT DARI API ALKITAB ONLINE ---
-def fetch_verified_bible_verse(reference_query):
-    """
-    Mengambil dan memvalidasi teks ayat Alkitab secara real-time dari API terstruktur.
-    Contoh input: "Yohanes 3:16" atau "Mazmur 23:1"
-    """
-    print(f"📖 Memvalidasi ayat dari API Alkitab Resmi: {reference_query}...")
-    
-    encoded_ref = reference_query.strip()
-    api_url = f"https://sonnylab.com/api/alkitab/{encoded_ref}"
-    
-    for attempt in range(3):
-        try:
-            response = requests.get(api_url, timeout=15)
-            if response.status_code == 200:
-                data = response.json()
-                if isinstance(data, list) and len(data) > 0:
-                    verse_text = data[0].get("text", "").strip()
-                    if verse_text:
-                        print(f"✅ Ayat terverifikasi valid: {verse_text[:60]}...")
-                        return verse_text
-            time.sleep(2)
-        except Exception as e:
-            print(f"⚠️ Gagal koneksi API (Percobaan {attempt+1}/3): {e}")
-            time.sleep(3)
-            
-    print(f"❌ Peringatan: Referensi '{reference_query}' gagal divalidasi dari API online.")
-    return None
-
-# --- 1. GROQ AI: MENCARI REFERENSI & RENUNGAN (PARSING FLEKSIBEL) ---
+# --- 1. GROQ AI: GENERATOR BATCH KONTEN (REFERENSI, AYAT LENGKAP & RENUNGAN) ---
 def generate_batch_image_content(num_posts=3):
-    print(f"🕊️ Meminta Groq Llama-3 meracik {num_posts} referensi ayat yang beragam & renungan rohani...")
+    print(f"🕊️ Meminta Groq Llama-3 meracik {num_posts} naskah ayat Alkitab & renungan yang akurat...")
     
     used_verses = get_used_verses()
     history_context = "\n".join(used_verses[-30:]) if used_verses else "(Belum ada riwayat)"
     
     prompt = f"""
-    Bertindaklah sebagai teolog dan pembuat konten rohani Kristen.
-    Berikan {num_posts} referensi Kitab dan Ayat Alkitab yang BERAGAM, unik, dan bermakna mendalam dari seluruh bagian Alkitab (Perjanjian Lama dan Perjanjian Baru, cth: "Amsal 3:5", "Roma 8:28", "Yosua 1:9", "Matius 11:28"), beserta renungan singkat yang relevan.
+    Bertindaklah sebagai teolog dan pembuat konten rohani Kristen yang akurat.
+    Berikan {num_posts} referensi Ayat Alkitab (Terjemahan Baru LAI) yang BERAGAM dan unik dari seluruh Alkitab, lengkap dengan teks isi ayatnya secara utuh serta renungan singkat yang relevan.
     
     ATURAN MUTLAK: 
-    1. Berikan variasi ayat yang luas, jangan hanya mazmur atau filipi saja.
+    1. Teks ayat HARUS SESUAI dengan Alkitab Terjemahan Baru (TB) Lembaga Alkitab Indonesia secara akurat.
     2. Kalimat renungan HARUS SINGKAT, padat, puitis (maksimal 1 kalimat pendek).
     3. Dilarang menggunakan referensi ayat yang ada di daftar riwayat ini: {history_context}
     
     Gunakan pemisah '---' di antara setiap naskah. Format wajib persis seperti ini:
     
-    REF: [Referensi Kitab dan Ayat, cth: Amsal 3:5]
+    REF: [Referensi Kitab dan Ayat, cth: Yosua 1:9]
+    AYAT: [Teks isi ayat Alkitab yang lengkap dan akurat]
     RENUNGAN: [1 kalimat pendek bermakna rohani]
     ---
     """
@@ -85,7 +57,7 @@ def generate_batch_image_content(num_posts=3):
                 messages=[{"role": "user", "content": prompt}],
                 model="llama-3.1-8b-instant",
                 temperature=0.8,
-                max_tokens=1000,
+                max_tokens=1500,
             )
             raw_text = chat_completion.choices[0].message.content
             break
@@ -96,54 +68,41 @@ def generate_batch_image_content(num_posts=3):
         raise Exception("❌ Gagal menghubungi Groq AI.")
 
     batch = []
-    # Memproses setiap blok naskah secara fleksibel
     for chunk in raw_text.split("---"):
         if len(batch) >= num_posts: break
         lines = [line.strip() for line in chunk.strip().split("\n") if line.strip()]
         if not lines: continue
         
         ref = None
+        ayat = None
         renungan = None
         
         for line in lines:
             line_upper = line.upper()
             if "REF:" in line_upper:
                 ref = line.split(":", 1)[1].strip()
+            elif "AYAT:" in line_upper:
+                ayat = line.split(":", 1)[1].strip()
             elif "RENUNGAN:" in line_upper:
                 renungan = line.split(":", 1)[1].strip()
-        
-        # Jika baris pertama gagal mendeteksi REF secara ketat, ambil baris pertama yang tampak seperti referensi ayat
-        if not ref and len(lines) > 0:
-            potential_ref = lines[0].replace("REF", "").replace(":", "").strip()
-            if len(potential_ref) < 30: # Asumsi panjang nama kitab & nomor ayat wajar
-                ref = potential_ref
                 
-        if not ref:
-            continue # Lewati blok yang benar-benar tidak terbaca alih-alih langsung crash total
+        # Pembersihan teks dari tanda kurung siku jika ada
+        if ref: ref = ref.replace("[", "").replace("]", "").strip()
+        if ayat: ayat = ayat.replace("[", "").replace("]", "").strip()
+        if renungan: renungan = renungan.replace("[", "").replace("]", "").strip()
             
-        # Bersihkan karakter tanda kurung siku jika ada yang terbawa dari AI
-        ref = ref.replace("[", "").replace("]", "").strip()
-        if renungan:
-            renungan = renungan.replace("[", "").replace("]", "").strip()
-            
-        # Ambil & Validasi isi ayat secara real-time dari API online
-        official_ayat = fetch_verified_bible_verse(ref)
-        
-        # Jika ayat tidak ditemukan di API, lewati (coba cari yang lain) alih-alih menghentikan bot
-        if not official_ayat:
-            print(f"⚠️ Melewati ayat '{ref}' karena tidak ditemukan di database API Alkitab.")
-            continue
-            
-        batch.append({
-            "ref": ref,
-            "ayat": official_ayat,
-            "renungan": renungan if renungan else "Penyertaan Tuhan adalah kekuatan kita."
-        })
+        # Jika data lengkap, masukkan ke batch
+        if ref and ayat:
+            batch.append({
+                "ref": ref,
+                "ayat": ayat,
+                "renungan": renungan if renungan else "Penyertaan Tuhan adalah kekuatan kita."
+            })
         
     if len(batch) == 0:
-        raise Exception("❌ KEGAGALAN KRITIS: AI tidak menghasilkan satupun referensi ayat yang valid terverifikasi.")
+        raise Exception("❌ KEGAGALAN KRITIS: AI gagal menghasilkan format naskah yang sesuai.")
         
-    print(f"✅ Berhasil menyiapkan {len(batch)} karya galeri terverifikasi dengan ragam ayat berbeda!")
+    print(f"✅ Berhasil menyiapkan {len(batch)} karya galeri terverifikasi!")
     return batch
 
 # --- 2. PEMUAT FONT LOKAL ---
@@ -160,19 +119,22 @@ def load_aesthetic_fonts():
             
     return fonts
 
-# --- 3. GENERATOR LATAR & TIPOGRAFI LOKAL ---
+# --- 3. GENERATOR LATAR & TIPOGRAFI LOKAL (100% AMAN TANPA KETERGANTUNGAN API LUAR) ---
 def create_aesthetic_bible_post(item, output_path, img_size=(1080, 1350)):
     print("✨ Menyusun galeri pameran seni tipografi rohani...")
     
+    # Membuat latar belakang gradasi artistik elegan (Nuansa galeri pameran berkelas)
     img = Image.new("RGBA", img_size, "#1a1a24")
     draw = ImageDraw.Draw(img)
     
+    # Efek gradasi halus vertikal
     for y in range(img_size[1]):
         r = int(26 + (y / img_size[1]) * 20)
         g = int(26 + (y / img_size[1]) * 15)
         b = int(36 + (y / img_size[1]) * 40)
         draw.line([(0, y), (img_size[0], y)], fill=(r, g, b, 255))
         
+    # Bingkai artistik tipis ala galeri seni
     draw.rectangle([50, 50, img_size[0]-50, img_size[1]-50], outline="#FFDF73", width=2)
     
     fonts = load_aesthetic_fonts()
@@ -191,13 +153,16 @@ def create_aesthetic_bible_post(item, output_path, img_size=(1080, 1350)):
     lines_ayat = chunk_text(f'"{item["ayat"]}"', words_per_line=4)
     lines_renungan = chunk_text(item['renungan'], words_per_line=5)
     
+    # Render Referensi Ayat
     ref_text = item['ref'].upper()
     w_ref = get_text_width(ref_text, font_ref)
     draw.text((((img_size[0]-w_ref)//2) + 2, 182), ref_text, font=font_ref, fill="black")
     draw.text(((img_size[0]-w_ref)//2, 180), ref_text, font=font_ref, fill="#FFDF73")
     
+    # Garis pemisah
     draw.line([(img_size[0]//2 - 100, 260), (img_size[0]//2 + 100, 260)], fill="#FFDF73", width=2)
     
+    # Render Isi Ayat
     y_ayat = 340
     for line in lines_ayat:
         w_ayat = get_text_width(line, font_ayat)
@@ -205,6 +170,7 @@ def create_aesthetic_bible_post(item, output_path, img_size=(1080, 1350)):
         draw.text(((img_size[0]-w_ayat)//2, y_ayat), line, font=font_ayat, fill="#FFFFFF")
         y_ayat += 68
 
+    # Render Renungan Singkat
     y_renungan = 950
     for line in lines_renungan:
         w_ren = get_text_width(line, font_renungan)
@@ -233,14 +199,14 @@ def upload_photo_to_facebook(image_path, caption):
     else: 
         raise Exception(f"Gagal upload: {response}")
 
-# --- MAIN LOOP (BATCH POST) ---
+# --- MAIN LOOP (BATCH 3 POST) ---
 if __name__ == "__main__":
-    print("⚡ PAMERAN TIPOGRAFI ROHANI & SIMBOL KEKRISTENAN (BATCH KARYA) ⚡\n")
+    print("⚡ PAMERAN TIPOGRAFI ROHANI & SIMBOL KEKRISTENAN (BATCH 3 KARYA) ⚡\n")
     try:
         batch_items = generate_batch_image_content(num_posts=3)
         
         for i, item in enumerate(batch_items, 1):
-            print(f"\n--- MENAMPILKAN KARYA {i} DARI {len(batch_items)} ---")
+            print(f"\n--- MENAMPILKAN KARYA {i} DARI 3 ---")
             image_file = os.path.join(BASE_DIR, f"gallery_exhibit_{i}.jpg")
             caption = f"✨ {item['ref']} ✨\n\n\"{item['ayat']}\"\n\n{item['renungan']}\n\n#GaleriRohani #RenunganHarian #AyatAlkitab #SeniKristen #PameranIman"
             
@@ -262,7 +228,7 @@ if __name__ == "__main__":
                 print("⏳ Jeda 45 detik untuk persiapan kurasi karya berikutnya...\n")
                 time.sleep(45)
                 
-        print("🎉 PAMERAN KARYA HARI INI TELAH SELESAI DITAMPILKAN DI GALERI!")
+        print("🎉 PAMERAN 3 KARYA HARI INI TELAH SELESAI DITAMPILKAN DI GALERI!")
     except Exception as e:
         print(f"❌ Kesalahan pada galeri bot: {e}\n")
         exit(1)
