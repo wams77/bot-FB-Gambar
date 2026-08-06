@@ -33,64 +33,65 @@ def mark_verse_as_used(verse_ref):
     with open(HISTORY_FILE, 'a', encoding='utf-8') as f:
         f.write(f"{verse_ref}\n")
 
-# --- FITUR BARU: GOOGLE SEARCH SCRAPER (BIBLE.COM & SABDA) ---
-def fetch_verse_from_google(reference):
+# --- FITUR BARU: SCRAPER BIBLE.COM & SABDA (ANTI-BLOKIR GOOGLE) ---
+def fetch_verse_from_search(reference):
     """
-    Mengambil isi ayat dengan mengekstrak cuplikan (snippet) dari 
-    hasil pencarian Google, difokuskan pada situs bible.com dan sabda.org.
+    Mengambil isi ayat dengan mengekstrak cuplikan (snippet) dari hasil web 
+    Bible.com & Sabda, menggunakan mesin pencari Bing & DuckDuckGo yang ramah bot.
     """
-    print(f"🔍 Mencari teks resmi '{reference}' via Google (Bible.com/SABDA)...")
+    print(f"🔍 Mencari teks resmi '{reference}' dari Web (Bible.com/SABDA)...")
     
-    # Kueri khusus agar Google menampilkan hasil dari situs resmi
-    query = f'"{reference}" Terjemahan Baru site:bible.com/id OR site:alkitab.sabda.org'
-    url = f"https://www.google.com/search?q={urllib.parse.quote(query)}"
+    query = f'"{reference}" Terjemahan Baru site:bible.com OR site:alkitab.sabda.org'
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
-    for attempt in range(3):
-        try:
-            response = requests.get(url, headers=headers, timeout=20)
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, 'html.parser')
-                
-                # Mengambil elemen yang berpotensi menjadi cuplikan Google
-                snippets = soup.find_all(['div', 'span'], class_=lambda c: c and ('VwiC3b' in c or 'BNeawe' in c))
-                
-                if not snippets:
-                    snippets = soup.find_all('div')
-                
-                for snippet in snippets:
-                    text = snippet.get_text(separator=' ', strip=True)
+    # Kita gunakan Bing & DuckDuckGo karena Google memblokir IP GitHub Actions
+    search_engines = [
+        f"https://www.bing.com/search?q={urllib.parse.quote(query)}",
+        f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
+    ]
+    
+    for url in search_engines:
+        engine_name = "Bing" if "bing" in url else "DuckDuckGo"
+        for attempt in range(2):
+            try:
+                response = requests.get(url, headers=headers, timeout=15)
+                if response.status_code == 200:
+                    soup = BeautifulSoup(response.text, 'html.parser')
                     
-                    # Validasi: Panjang wajar, bukan URL, bukan navigasi situs
-                    if 25 < len(text) < 400 and "www." not in text and "http" not in text:
-                        if any(x in text.lower() for x in ["hak cipta", "masuk", "daftar", "alkitab app"]):
-                            continue
+                    # Mencari elemen cuplikan teks berdasarkan mesin pencari
+                    if engine_name == "Bing":
+                        snippets = soup.find_all('div', class_='b_caption')
+                        if not snippets: snippets = soup.find_all('p')
+                    else:
+                        snippets = soup.find_all('a', class_='result__snippet')
+                        
+                    for snippet in snippets:
+                        text = snippet.get_text(separator=' ', strip=True)
+                        
+                        # Validasi untuk membuang teks sistem/navigasi website
+                        if 25 < len(text) < 400 and "http" not in text:
+                            lower_text = text.lower()
+                            if any(x in lower_text for x in ["hak cipta", "masuk", "daftar", "alkitab app", "cookies", "redirected"]):
+                                continue
                             
-                        # Bersihkan awalan tanggal atau tanda elipsis khas Google
-                        if " — " in text:
-                            text = text.split(" — ", 1)[-1]
-                        
-                        clean_text = text.replace('"', '').replace('...', '').strip()
-                        
-                        # Hapus nomor ayat di awal teks jika terbawa (misal: "19 Tuhan dekat..." menjadi "Tuhan dekat...")
-                        clean_text = re.sub(r'^[\(\[]?\d+[\)\]\.]?\s*', '', clean_text)
-                        
-                        print(f"   ✅ Ayat didapat dari Google: \"{clean_text[:60]}...\"")
-                        return clean_text
-                        
-            elif response.status_code == 429:
-                print("   ⚠️ Terkena Limit Google (HTTP 429). Menunggu lebih lama...")
-                time.sleep(10)
+                            # Pembersihan karakter kotor dari hasil pencarian
+                            if " · " in text: text = text.split(" · ", 1)[-1]
+                            clean_text = text.replace('"', '').replace('...', '').strip()
+                            clean_text = re.sub(r'^[\(\[]?\d+[\)\]\.]?\s*', '', clean_text)
+                            
+                            if len(clean_text) > 20:
+                                print(f"   ✅ Ayat didapat dari {engine_name}: \"{clean_text[:60]}...\"")
+                                return clean_text
+                                
+            except Exception as e:
+                print(f"   ⚠️ Error di {engine_name} (Percobaan {attempt+1}): {e}")
                 
-        except Exception as e:
-            print(f"   ⚠️ Error pencarian (Percobaan {attempt+1}/3): {e}")
+            time.sleep(3)
             
-        time.sleep(5)
-        
-    print(f"   ❌ Gagal mendapatkan cuplikan ayat '{reference}' dari Google.")
+    print(f"   ❌ Gagal mendapatkan cuplikan ayat '{reference}' dari web.")
     return None
 
 # --- 1. GROQ AI: MENGHASILKAN REFERENSI & RENUNGAN SAJA ---
@@ -105,7 +106,7 @@ def generate_batch_image_content(num_posts=3):
     Pilih {num_posts} referensi Ayat Alkitab yang BERAGAM dari seluruh isi Alkitab (Perjanjian Lama & Baru), beserta renungan singkat.
     
     ATURAN MUTLAK KETAT: 
-    1. Hanya berikan REFERENSI AYAT dan RENUNGAN saja. JANGAN MENULIS TEKS ISI AYAT (Kami akan mengambilnya dari Google).
+    1. Hanya berikan REFERENSI AYAT dan RENUNGAN saja. JANGAN MENULIS TEKS ISI AYAT (Kami akan mengambilnya sendiri dari web Bible.com).
     2. Kalimat renungan HARUS SINGKAT (maksimal 1 kalimat).
     3. DILARANG KERAS menggunakan referensi ayat yang sudah pernah dipakai dalam riwayat berikut: 
     {history_context}
@@ -154,8 +155,8 @@ def generate_batch_image_content(num_posts=3):
         if renungan: renungan = renungan.replace("[", "").replace("]", "").strip()
             
         if ref:
-            # Mengambil isi ayat langsung dari Google Search (Bible.com / Sabda)
-            official_ayat = fetch_verse_from_google(ref)
+            # Mengambil isi ayat murni dari Web (Bible.com / Sabda.org)
+            official_ayat = fetch_verse_from_search(ref)
             
             if official_ayat:
                 batch.append({
@@ -164,12 +165,12 @@ def generate_batch_image_content(num_posts=3):
                     "renungan": renungan if renungan else "Tuhan selalu menyertai kita."
                 })
             else:
-                print(f"⚠️ Referensi '{ref}' dilewati karena teks tidak ditemukan di Google.")
+                print(f"⚠️ Referensi '{ref}' dilewati karena teks gagal diekstrak dari web.")
         
     if len(batch) == 0:
-        raise Exception("❌ KEGAGALAN KRITIS: Tidak ada referensi ayat yang berhasil ditarik teksnya dari Google.")
+        raise Exception("❌ KEGAGALAN KRITIS: Tidak ada referensi ayat yang berhasil ditarik teksnya dari website.")
         
-    print(f"✅ Berhasil menyiapkan {len(batch)} naskah dengan teks asli dari Web!")
+    print(f"✅ Berhasil menyiapkan {len(batch)} naskah dengan teks murni dari Bible.com!")
     return batch
 
 # --- 2. GENERATOR LATAR BELAKANG ESTETIK (PEXELS API) ---
