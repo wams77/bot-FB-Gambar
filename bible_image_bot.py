@@ -3,6 +3,7 @@ import time
 import random
 import requests
 import urllib.parse
+import re
 import gc
 from bs4 import BeautifulSoup
 from groq import Groq
@@ -32,75 +33,79 @@ def mark_verse_as_used(verse_ref):
     with open(HISTORY_FILE, 'a', encoding='utf-8') as f:
         f.write(f"{verse_ref}\n")
 
-# --- FITUR BARU: VERIFIKASI PENCARIAN GOOGLE ---
-def verify_verse_with_google(ref, ai_ayat):
+# --- FITUR BARU: GOOGLE SEARCH SCRAPER (BIBLE.COM & SABDA) ---
+def fetch_verse_from_google(reference):
     """
-    Mencari referensi ayat di Google dan membandingkan teks dari AI 
-    dengan hasil pencarian web untuk mencegah halusinasi AI.
+    Mengambil isi ayat dengan mengekstrak cuplikan (snippet) dari 
+    hasil pencarian Google, difokuskan pada situs bible.com dan sabda.org.
     """
-    print(f"🔍 Cek silang '{ref}' dengan pencarian Google...")
+    print(f"🔍 Mencari teks resmi '{reference}' via Google (Bible.com/SABDA)...")
     
-    # Kata kunci pencarian yang spesifik
-    query = f"{ref} alkitab terjemahan baru tb"
+    # Kueri khusus agar Google menampilkan hasil dari situs resmi
+    query = f'"{reference}" Terjemahan Baru site:bible.com/id OR site:alkitab.sabda.org'
     url = f"https://www.google.com/search?q={urllib.parse.quote(query)}"
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
-    try:
-        response = requests.get(url, headers=headers, timeout=15)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Mengambil semua teks dari halaman hasil pencarian Google
-            text_content = soup.get_text(separator=' ', strip=True).lower()
-            
-            # Ekstrak kata-kata kunci (panjang kata > 4 huruf) dari teks AI
-            ai_words = [word.lower().strip(',.!?') for word in ai_ayat.split() if len(word) > 4]
-            
-            if not ai_words:
-                return True
-            
-            # Hitung persentase kata dari AI yang juga muncul di hasil pencarian Google
-            matches = sum(1 for word in ai_words if word in text_content)
-            match_percentage = (matches / len(ai_words)) * 100
-            
-            print(f"   > Teks AI: \"{ai_ayat[:60]}...\"")
-            print(f"   > Tingkat kecocokan kata dengan Google: {match_percentage:.1f}%")
-            
-            # Jika kecocokan lebih dari 40% (cukup toleran untuk perbedaan terjemahan)
-            if match_percentage >= 40: 
-                print("   ✅ Lolos Verifikasi: Teks terkonfirmasi valid di mesin pencari Google.")
-                return True
-            else:
-                print("   ❌ Gagal Verifikasi: Ayat kemungkinan halusinasi AI (tidak cocok dengan hasil Google).")
-                return False
+    for attempt in range(3):
+        try:
+            response = requests.get(url, headers=headers, timeout=20)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
                 
-        elif response.status_code == 429:
-            print("   ⚠️ Google membatasi pencarian bot (HTTP 429). Loloskan sementara demi kelancaran.")
-            return True
-        else:
-            print(f"   ⚠️ Google merespons dengan HTTP {response.status_code}. Melewati verifikasi.")
-            return True
+                # Mengambil elemen yang berpotensi menjadi cuplikan Google
+                snippets = soup.find_all(['div', 'span'], class_=lambda c: c and ('VwiC3b' in c or 'BNeawe' in c))
+                
+                if not snippets:
+                    snippets = soup.find_all('div')
+                
+                for snippet in snippets:
+                    text = snippet.get_text(separator=' ', strip=True)
+                    
+                    # Validasi: Panjang wajar, bukan URL, bukan navigasi situs
+                    if 25 < len(text) < 400 and "www." not in text and "http" not in text:
+                        if any(x in text.lower() for x in ["hak cipta", "masuk", "daftar", "alkitab app"]):
+                            continue
+                            
+                        # Bersihkan awalan tanggal atau tanda elipsis khas Google
+                        if " — " in text:
+                            text = text.split(" — ", 1)[-1]
+                        
+                        clean_text = text.replace('"', '').replace('...', '').strip()
+                        
+                        # Hapus nomor ayat di awal teks jika terbawa (misal: "19 Tuhan dekat..." menjadi "Tuhan dekat...")
+                        clean_text = re.sub(r'^[\(\[]?\d+[\)\]\.]?\s*', '', clean_text)
+                        
+                        print(f"   ✅ Ayat didapat dari Google: \"{clean_text[:60]}...\"")
+                        return clean_text
+                        
+            elif response.status_code == 429:
+                print("   ⚠️ Terkena Limit Google (HTTP 429). Menunggu lebih lama...")
+                time.sleep(10)
+                
+        except Exception as e:
+            print(f"   ⚠️ Error pencarian (Percobaan {attempt+1}/3): {e}")
             
-    except Exception as e:
-        print(f"   ⚠️ Error saat mencari di Google: {e}. Melewati verifikasi.")
-        return True
+        time.sleep(5)
+        
+    print(f"   ❌ Gagal mendapatkan cuplikan ayat '{reference}' dari Google.")
+    return None
 
-# --- 1. GROQ AI: MENGHASILKAN TEKS AYAT AKURAT ---
+# --- 1. GROQ AI: MENGHASILKAN REFERENSI & RENUNGAN SAJA ---
 def generate_batch_image_content(num_posts=3):
-    print(f"🕊️ Meminta Groq Llama-3 menyusun {num_posts} naskah ayat Alkitab yang unik...")
+    print(f"🕊️ Meminta Groq Llama-3 menyusun {num_posts} referensi ayat yang unik...")
     
     used_verses = get_used_verses()
     history_context = "\n".join(used_verses[-50:]) if used_verses else "(Belum ada riwayat)"
     
     prompt = f"""
-    Bertindaklah sebagai pendeta dan ahli teologi Alkitab yang sangat akurat.
-    Berikan {num_posts} referensi Ayat Alkitab yang BERAGAM dari seluruh isi Alkitab (Perjanjian Lama & Baru), beserta teks ayat yang utuh dan renungan singkat.
+    Bertindaklah sebagai pendeta dan ahli teologi Alkitab.
+    Pilih {num_posts} referensi Ayat Alkitab yang BERAGAM dari seluruh isi Alkitab (Perjanjian Lama & Baru), beserta renungan singkat.
     
     ATURAN MUTLAK KETAT: 
-    1. Teks ayat HARUS persis mengutip dari Alkitab Terjemahan Baru (TB). Jangan diparafrase!
+    1. Hanya berikan REFERENSI AYAT dan RENUNGAN saja. JANGAN MENULIS TEKS ISI AYAT (Kami akan mengambilnya dari Google).
     2. Kalimat renungan HARUS SINGKAT (maksimal 1 kalimat).
     3. DILARANG KERAS menggunakan referensi ayat yang sudah pernah dipakai dalam riwayat berikut: 
     {history_context}
@@ -108,7 +113,6 @@ def generate_batch_image_content(num_posts=3):
     Gunakan pemisah '---' di antara setiap naskah. Format wajib persis seperti ini:
     
     REF: [Referensi Kitab dan Ayat, cth: Mazmur 34:19]
-    AYAT: [Teks isi ayat yang akurat]
     RENUNGAN: [1 kalimat renungan]
     ---
     """
@@ -119,8 +123,8 @@ def generate_batch_image_content(num_posts=3):
             chat_completion = groq_client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
                 model="llama-3.1-8b-instant",
-                temperature=0.7,
-                max_tokens=1500,
+                temperature=0.8,
+                max_tokens=1000,
             )
             raw_text = chat_completion.choices[0].message.content
             break
@@ -128,7 +132,7 @@ def generate_batch_image_content(num_posts=3):
             print(f"⚠️ Error Groq (Percobaan {attempt+1}/3): {e}")
             time.sleep(10)
     else:
-        raise Exception("❌ Gagal menghubungi Groq AI setelah 3 percobaan.")
+        raise Exception("❌ Gagal menghubungi Groq AI.")
 
     batch = []
     for chunk in raw_text.split("---"):
@@ -137,37 +141,35 @@ def generate_batch_image_content(num_posts=3):
         if not lines: continue
         
         ref = None
-        ayat = None
         renungan = None
         
         for line in lines:
             line_upper = line.upper()
             if "REF:" in line_upper:
                 ref = line.split(":", 1)[1].strip()
-            elif "AYAT:" in line_upper:
-                ayat = line.split(":", 1)[1].strip()
             elif "RENUNGAN:" in line_upper:
                 renungan = line.split(":", 1)[1].strip()
                 
         if ref: ref = ref.replace("[", "").replace("]", "").strip()
-        if ayat: ayat = ayat.replace("[", "").replace("]", "").strip()
         if renungan: renungan = renungan.replace("[", "").replace("]", "").strip()
             
-        if ref and ayat:
-            # LAKUKAN VERIFIKASI GOOGLE SEBELUM MENYETUJUI AYAT
-            if verify_verse_with_google(ref, ayat):
+        if ref:
+            # Mengambil isi ayat langsung dari Google Search (Bible.com / Sabda)
+            official_ayat = fetch_verse_from_google(ref)
+            
+            if official_ayat:
                 batch.append({
                     "ref": ref,
-                    "ayat": ayat,
+                    "ayat": official_ayat,
                     "renungan": renungan if renungan else "Tuhan selalu menyertai kita."
                 })
             else:
-                print(f"⚠️ Ayat '{ref}' ditolak karena gagal verifikasi Google.")
+                print(f"⚠️ Referensi '{ref}' dilewati karena teks tidak ditemukan di Google.")
         
     if len(batch) == 0:
-        raise Exception("❌ KEGAGALAN KRITIS: Tidak ada ayat yang lolos verifikasi Google.")
+        raise Exception("❌ KEGAGALAN KRITIS: Tidak ada referensi ayat yang berhasil ditarik teksnya dari Google.")
         
-    print(f"✅ Berhasil menyiapkan {len(batch)} naskah yang terverifikasi silang dengan Google!")
+    print(f"✅ Berhasil menyiapkan {len(batch)} naskah dengan teks asli dari Web!")
     return batch
 
 # --- 2. GENERATOR LATAR BELAKANG ESTETIK (PEXELS API) ---
