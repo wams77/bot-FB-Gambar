@@ -1,10 +1,10 @@
 name: Auto Aesthetic Bible Image Bot
 
 on:
-  schedule:
-    # Berjalan otomatis setiap 2 jam sekali (pada menit ke-0)
-    - cron: '0 */8 * * *' 
   workflow_dispatch:
+  schedule:
+    # Jam 01:00, 05:00, 11:00 UTC (Sama dengan Jam 09:00 WITA, 13:00 WITA, 19:00 WITA)
+    - cron: "0 1,5,11 * * *"
 
 permissions:
   contents: write
